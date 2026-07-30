@@ -5451,11 +5451,22 @@ var XL_BMAP={"Peugeot":"Peugeot Toplam","Citroen":"Citroen Toplam","Opel":"Opel 
    markalandı ama Excel'de ikisi de ayrı ayrı satır olarak duruyor). Burada
    hepsini TEK, zaten sayfada kullanılan kanonik isme ("2.El") indirgiyoruz ki
    hedef/fiili toplamları ve bütçe eşleşmesi (XL_BMAP) bölünmeden çalışsın. ---- */
-var MARKA_ALIAS={'otokoc':'2.El','spoticar':'2.El'};
+var MARKA_ALIAS={
+  'otokoc':'2.El','spoticar':'2.El',
+  /* "Hurda" hiçbir zaman gerçek bir marka olmadı — Fiili sayfasında Departman'ı
+     JAECOO olan 2 satırın Plaza hücresine yanlışlıkla "Hurda" yazılmış; bu
+     yüzden Jaecoo ile aynı birleşik markaya (O & J) alınıyor. */
+  'jaecoo':'O & J','omoda':'O & J','hurda':'O & J'
+};
 function canonMarka(m){
   var t=String(m||'').trim();
   return MARKA_ALIAS[trLower(t)]||t;
 }
+/* Birleşen markalardan biri BÜTÇE sayfasında TEK ortak etiket yerine BİRDEN
+   FAZLA ayrı satıra bölünmüş olabilir (Jaecoo Toplam + Omoda Toplam gibi) —
+   bu durumda parseButce tek etiket aramak yerine burada listelenen etiketlerin
+   hepsini toplar. */
+var MARKA_BUDGET_LABELS={'O & J':['Jaecoo Toplam','Omoda Toplam']};
 /* Takma adlar birleşince aynı danışman/ay için iki ayrı satır ("Otokoç" +
    "Spoticar") aynı markaya ("2.El") düşer — bunları TEK satırda toplar
    (karneFact gibi .find() ile tek satır bekleyen yerler bölünmüş veri görmesin). */
@@ -5522,6 +5533,13 @@ function parseButce(rowsBUTCE,brands){
   }
   var butce={},butceDetay={};
   brands.forEach(function(m){
+    var multiLabels=MARKA_BUDGET_LABELS[m];
+    if(multiLabels){
+      var sum=[0,0,0,0,0,0,0,0,0,0,0,0];
+      multiLabels.forEach(function(lbl){var arr=brows[lbl]; if(arr)for(var i=0;i<12;i++)sum[i]+=arr[i];});
+      butce[m]=sum;
+      return;
+    }
     var lbl=XL_BMAP.hasOwnProperty(m)?XL_BMAP[m]:(m+' Toplam');
     butce[m]=(lbl&&brows[lbl])?brows[lbl]:[0,0,0,0,0,0,0,0,0,0,0,0];
     if(lbl){
