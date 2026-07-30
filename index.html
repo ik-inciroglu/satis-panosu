@@ -3778,6 +3778,7 @@ function startApp(){
    GitHub'a yeniden yükleme yapılmadan, sayfa açıkken bile. */
 function applyLiveVeri(data){
   if(!data||!data.facts||!SES)return; // giriş yapılmadan DOM hazır değil
+  markaKanonik._map=null;
   var allM=DIM.markalar.length&&FLT.markalar.size===DIM.markalar.length;
   var allD=DIM.danismanlar.length&&FLT.danismanlar.size===DIM.danismanlar.length;
   var allA=DIM.aylar.length&&FLT.aylar.size===DIM.aylar.length;
@@ -4734,6 +4735,24 @@ function viewKarne(){
   return '<div class="empty">Bu bölüm için yetkiniz yok.</div>';
 }
 var karneMudurMarkaSec=null;
+/* Müdür hesaplarındaki marka ("CITROEN", "2. EL", "O&J") Excel'den gelen
+   gerçek yazımla ("Citroen", "2.El", "O & J") harf/boşluk/noktalama
+   farkı yüzünden birebir eşleşmeyebiliyor — bu yüzden karneRoster gibi
+   f.marka===marka bekleyen yerlere göndermeden önce, hesaptaki markayı
+   VERI.facts'te GERÇEKTEN kullanılan yazıma çeviriyoruz. */
+/* Marka isimleri çoğunlukla yabancı (Citroen, Fiat, Bmw...) — Türkçe I/İ kuralları
+   burada YANLIŞ sonuç verir (örn. "CITROEN" trLower ile "cıtroen" olur, "Citroen"
+   ise "citroen" kalır, hiç eşleşmez). Düz (yerel olmayan) küçük harfe çeviriyoruz. */
+function markaNorm(s){return String(s||'').toLowerCase().replace(/[\s.\-&]/g,'');}
+function markaKanonik(raw){
+  if(!markaKanonik._map){
+    markaKanonik._map={};
+    (VERI.facts||[]).forEach(function(f){
+      var k=markaNorm(f.marka); if(!(k in markaKanonik._map))markaKanonik._map[k]=f.marka;
+    });
+  }
+  return markaKanonik._map[markaNorm(raw)]||raw;
+}
 function viewKarneMudur(){
   var sub='<div class="subtabs">'
     +'<button class="subtab karne-sub'+(karneMudurSub==='giris'?' on':'')+'" data-ksub="giris">Karne Girişi</button>'
@@ -4742,7 +4761,7 @@ function viewKarneMudur(){
   var markaRaw=kendiUser&&kendiUser.marka;
   if(!markaRaw)return sub+'<div class="empty">Hesabınıza bir marka atanmamış. Lütfen İK/Yönetici ile görüşün.</div>';
   /* Bir müdür birden fazla markadan sorumlu olabilir (örn. "ARJ,FIAT") */
-  var markaList=(''+markaRaw).split(',').map(function(s){return s.trim();}).filter(Boolean);
+  var markaList=(''+markaRaw).split(',').map(function(s){return markaKanonik(s.trim());}).filter(Boolean);
   if(!karneMudurMarkaSec||markaList.indexOf(karneMudurMarkaSec)<0)karneMudurMarkaSec=markaList[0];
   var marka=karneMudurMarkaSec;
   var markaSecici=markaList.length>1
@@ -5646,6 +5665,7 @@ function factsFromHedefFiili(rowsHEDEF,rowsFIILI,rowsLISTE){
   return mergeFactDuplicates(facts);
 }
 function applyExcelData(res,lastMod){
+  markaKanonik._map=null;
   var allM=DIM.markalar.length&&FLT.markalar.size===DIM.markalar.length;
   var allD=DIM.danismanlar.length&&FLT.danismanlar.size===DIM.danismanlar.length;
   var allA=DIM.aylar.length&&FLT.aylar.size===DIM.aylar.length;
