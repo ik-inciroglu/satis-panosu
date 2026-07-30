@@ -4350,19 +4350,43 @@ function karneById(id){return (WORK.karneler||[]).find(x=>x.id===id)||null;}
 /* Karneleri bu tarayıcıda kalıcı tut (localStorage) — hiçbir kullanıcı eylemi
    dosya seçtirme penceresi açmasın diye ana kayıt yolu budur. */
 function karneSaveLocal(){try{localStorage.setItem('sp_karneler',JSON.stringify(WORK.karneler||[]));}catch(_){}}
+/* Filo satışları ayrı bir "marka" değil, gerçek markanın (Peugeot, Fiat...)
+   satır içindeki .filo alanında, birden fazla markaya dağılmış halde tutulur
+   (bkz. isFilo / factsFromHedefFiili). Bu yüzden "FİLO" müdürü (yalnızca
+   Mehmet Göze) için roster/fiili/sube-ortalaması burada özel olarak, .filo
+   alanı üzerinden ve TÜM markalar toplanarak hesaplanır — diğer (perakende)
+   müdürlerin ekranı hiç değişmez, onlar hâlâ yalnızca .fiili'yi görür. */
 function karneRoster(marka){
   var set=new Set();
   (WORK.facts||[]).forEach(function(f){
-    if(f.marka===marka&&f.durum==='Aktif'&&(f.unvan==='Satış Danışmanı'||f.unvan==='Kıdemli Satış Danışmanı'))set.add(f.danisman);
+    var uygun=marka==='FİLO'?(f.filo||0)>0:f.marka===marka;
+    if(uygun&&f.durum==='Aktif'&&(f.unvan==='Satış Danışmanı'||f.unvan==='Kıdemli Satış Danışmanı'))set.add(f.danisman);
   });
   return [...set].sort((a,b)=>a.localeCompare(b,'tr'));
 }
 function karneFact(marka,danisman,yil,ay){
+  if(marka==='FİLO'){
+    var rows=(WORK.facts||[]).filter(f=>f.danisman===danisman&&f.yil===yil&&f.ay===ay&&(f.filo||0)>0);
+    if(!rows.length)return null;
+    var hedef=rows.reduce((s,r)=>s+(r.hedef||0),0), filo=rows.reduce((s,r)=>s+(r.filo||0),0);
+    return {yil:yil,ay:ay,marka:'FİLO',danisman:danisman,hedef:hedef,fiili:filo,filo:filo,unvan:rows[0].unvan,durum:rows[0].durum};
+  }
   return (WORK.facts||[]).find(f=>f.marka===marka&&f.danisman===danisman&&f.yil===yil&&f.ay===ay)||null;
 }
 function karneSubeOrt(marka,yil,ay,haric){
-  var vals=(WORK.facts||[]).filter(f=>f.marka===marka&&f.yil===yil&&f.ay===ay&&f.danisman!==haric
-    &&(f.unvan==='Satış Danışmanı'||f.unvan==='Kıdemli Satış Danışmanı')).map(f=>f.fiili);
+  var vals;
+  if(marka==='FİLO'){
+    var byDan={};
+    (WORK.facts||[]).forEach(function(f){
+      if(f.yil===yil&&f.ay===ay&&(f.filo||0)>0&&f.danisman!==haric
+        &&(f.unvan==='Satış Danışmanı'||f.unvan==='Kıdemli Satış Danışmanı'))
+        byDan[f.danisman]=(byDan[f.danisman]||0)+f.filo;
+    });
+    vals=Object.values(byDan);
+  }else{
+    vals=(WORK.facts||[]).filter(f=>f.marka===marka&&f.yil===yil&&f.ay===ay&&f.danisman!==haric
+      &&(f.unvan==='Satış Danışmanı'||f.unvan==='Kıdemli Satış Danışmanı')).map(f=>f.fiili);
+  }
   if(!vals.length)return null;
   return Math.round((vals.reduce((s,v)=>s+v,0)/vals.length)*10)/10;
 }
