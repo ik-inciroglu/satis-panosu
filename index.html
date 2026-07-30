@@ -3765,7 +3765,38 @@ function startApp(){
   TAB=(SES.rol==='mudur')?'karne':'genel';
   buildDims(); resetFilters(); varsayilanDonemSec(); buildTabs(); renderSidebar(); render();
   initExcelBridge();
+  /* Sayfa açıldığından beri Firestore'dan zaten daha güncel bir veri geldiyse
+     (giriş ekranında beklerken bile canlı dinleme çalışıyordu), onu hemen uygula. */
+  if(window.SatisFB&&window.SatisFB.latest)applyLiveVeri(window.SatisFB.latest);
 }
+
+/* ==================== CANLI VERİ (Firebase) ====================
+   Excel Köprüsü admin'in bilgisayarında veriyi okuyup applyExcelData() ile
+   uyguladıktan sonra Firestore'a da yazar (bkz. applyExcelData sonu). Bu
+   fonksiyon ise TÜM ziyaretçilerde (admin dahil) o veriyi anlık uygular —
+   GitHub'a yeniden yükleme yapılmadan, sayfa açıkken bile. */
+function applyLiveVeri(data){
+  if(!data||!data.facts||!SES)return; // giriş yapılmadan DOM hazır değil
+  var allM=DIM.markalar.length&&FLT.markalar.size===DIM.markalar.length;
+  var allD=DIM.danismanlar.length&&FLT.danismanlar.size===DIM.danismanlar.length;
+  var allA=DIM.aylar.length&&FLT.aylar.size===DIM.aylar.length;
+  var allY=DIM.yillar.length&&FLT.yillar.size===DIM.yillar.length;
+  VERI.facts=data.facts; if(WORK)WORK.facts=data.facts;
+  if(data.butce){VERI.butce=data.butce; if(WORK)WORK.butce=data.butce;}
+  if(data.butceDetay){VERI.butceDetay=data.butceDetay; if(WORK)WORK.butceDetay=data.butceDetay;}
+  if(!VERI.meta)VERI.meta={};
+  VERI.meta.guncelleme=data.guncelleme||VERI.meta.guncelleme;
+  buildDims();
+  FLT.markalar=allM?new Set(DIM.markalar):new Set([...FLT.markalar].filter(function(m){return DIM.markalar.includes(m);}));
+  FLT.danismanlar=allD?new Set(DIM.danismanlar):new Set([...FLT.danismanlar].filter(function(d){return DIM.danismanlar.includes(d);}));
+  FLT.aylar=allA?new Set(DIM.aylar):new Set([...FLT.aylar].filter(function(a){return DIM.aylar.includes(a);}));
+  FLT.yillar=allY?new Set(DIM.yillar):new Set([...FLT.yillar].filter(function(y){return DIM.yillar.includes(y);}));
+  if(selDan&&!DIM.danismanlar.includes(selDan))selDan=null;
+  var ms=document.getElementById('metaSub');
+  if(ms)ms.textContent=((VERI.meta&&VERI.meta.baslik)||'Satış Panosu')+' · Canlı veri · '+(VERI.meta.guncelleme||'');
+  renderSidebar(); render();
+}
+window.onSatisVeriUpdate=applyLiveVeri;
 
 function buildDims(){
   var f=VERI.facts||[];
@@ -5514,6 +5545,12 @@ function applyExcelData(res,lastMod){
   document.getElementById('metaSub').textContent=
     (VERI.meta.baslik||'Satış Panosu')+' · Excel: '+(XL.fileName||'—')+' · '+stamp;
   renderSidebar(); render(); updateXlStatus();
+  /* Bu bilgisayarda okunan yeni veriyi Firestore'a yaz → siteyi açan HERKESİN
+     ekranı GitHub'a hiç yüklenmeden, anında güncellenir (bkz. applyLiveVeri). */
+  if(window.SatisFB){
+    window.SatisFB.push({facts:VERI.facts,butce:VERI.butce||null,butceDetay:VERI.butceDetay||null,guncelleme:VERI.meta.guncelleme})
+      .catch(function(e){toast('⚠ Canlı panoya yazılamadı: '+e.message);});
+  }
 }
 
 /* ---- Dosyayı oku & uygula (handle / sürükle-bırak / seçici ortak yolu) ---- */
@@ -5743,6 +5780,43 @@ try{if(window.showOpenFilePicker)idbGet('xlsx-handle').then(function(h){if(h&&!X
 /* Oturum kurtarılamadıysa giriş ekranı görünür olmalı (erken gizlemeyi geri al) */
 if(!SES){try{document.documentElement.classList.remove('resume');}catch(_){}}
 if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('sw.js').catch(function(){});});}
+</script>
+
+<!-- ==================== CANLI VERİ KÖPRÜSÜ (Firebase) ====================
+     Excel Köprüsü'nün okuduğu veriyi (facts/bütçe) burada Firestore'a yazıp
+     oradan dinliyoruz. Böylece admin'in bilgisayarında Excel değiştiği an,
+     siteyi açan HERKESİN ekranı — GitHub'a hiçbir şey yüklenmeden — anında
+     güncellenir. Yukarıdaki eski script'ler bu modülün tanımladığı
+     window.SatisFB ve window.onSatisVeriUpdate ile haberleşir. -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+  import { getFirestore, doc, setDoc, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyCWlB0nU-ETZxuo9xa6gG4VMYVu09P3fnE",
+    authDomain: "yetenek-havuzu.firebaseapp.com",
+    projectId: "yetenek-havuzu",
+    storageBucket: "yetenek-havuzu.firebasestorage.app",
+    messagingSenderId: "714642441227",
+    appId: "1:714642441227:web:bf49ac51367c6d9437b30e"
+  };
+  const app = initializeApp(firebaseConfig, "satis-panosu");
+  const db = getFirestore(app);
+  const veriRef = doc(db, "satisVeri", "current");
+
+  window.SatisFB = {
+    latest: null,
+    push(payload) {
+      return setDoc(veriRef, Object.assign({}, payload, { updatedAt: serverTimestamp() }), { merge: true });
+    }
+  };
+
+  onSnapshot(veriRef, (snap) => {
+    if (!snap.exists()) return;
+    const data = snap.data();
+    window.SatisFB.latest = data;
+    if (typeof window.onSatisVeriUpdate === "function") window.onSatisVeriUpdate(data);
+  }, (err) => console.error("Canlı satış verisi dinlenemedi:", err));
 </script>
 </body>
 </html>
