@@ -4030,10 +4030,12 @@ function render(){
 }
 
 function viewGenel(rows,effMarkalar){
-  var rowsNF=rows.filter(r=>r.marka!=='FİLO'), rowsFilo=rows.filter(r=>r.marka==='FİLO');
-  var effMarkalarNF=new Set([...effMarkalar].filter(m=>m!=='FİLO'));
+  /* Filo, ayrı bir "marka" olarak değil, her satırın kendi .filo alanında tutulur
+     (bkz. factsFromHedefFiili / xlsxToVeri) — bu yüzden filo hariç toplamlar için
+     markaya göre değil, .filo alanına göre ayırıyoruz. */
+  var rowsNF=rows, effMarkalarNF=effMarkalar;
   var th=rowsNF.reduce((s,r)=>s+r.hedef,0), tf=rowsNF.reduce((s,r)=>s+r.fiili,0);
-  var tfFilo=rowsFilo.reduce((s,r)=>s+r.fiili,0);
+  var tfFilo=rowsNF.reduce((s,r)=>s+(r.filo||0),0);
   var oran=th?tf/th:null;
   var danSay=new Set(rowsNF.map(r=>r.danisman)).size;
   var tBu=butceToplam(effMarkalarNF,aktifAylar());
