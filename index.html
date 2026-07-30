@@ -3768,6 +3768,7 @@ function startApp(){
   /* Sayfa açıldığından beri Firestore'dan zaten daha güncel bir veri geldiyse
      (giriş ekranında beklerken bile canlı dinleme çalışıyordu), onu hemen uygula. */
   if(window.SatisFB&&window.SatisFB.latest)applyLiveVeri(window.SatisFB.latest);
+  if(window.SatisFB&&window.SatisFB.karneler)applyLiveKarneler(window.SatisFB.karneler);
 }
 
 /* ==================== CANLI VERİ (Firebase) ====================
@@ -3797,6 +3798,19 @@ function applyLiveVeri(data){
   renderSidebar(); render();
 }
 window.onSatisVeriUpdate=applyLiveVeri;
+
+/* Karneler de aynı canlı-veri prensibiyle çalışır: bir müdür karne kaydettiğinde
+   (bkz. karneKaydet/karneCiktiAl/silme) Firestore'a yazılır; buradaki dinleyici
+   o değişikliği HERKESİN (admin dahil, hangi bilgisayarda olursa olsun) ekranına
+   anında yansıtır — daha önce yalnızca kaydeden tarayıcının localStorage'ında
+   kalıyordu. */
+function applyLiveKarneler(list){
+  if(!list||!SES)return;
+  WORK.karneler=list; VERI.karneler=list;
+  try{localStorage.setItem('sp_karneler',JSON.stringify(list));}catch(_){}
+  render();
+}
+window.onKarnelerUpdate=applyLiveKarneler;
 
 function buildDims(){
   var f=VERI.facts||[];
@@ -4452,18 +4466,25 @@ function karneKaydet(kesinlestir){
   else existing.log.push({tarih:now,olay:'taslak_kaydedildi',kullanici:SES.ad});
   VERI.karneler=WORK.karneler;
   karneSaveLocal();
-  if(msg)msg.innerHTML='<div class="ok-msg">✓ '+(kesinlestir?'Kesinleştirildi':'Taslak kaydedildi')+' — bu tarayıcıda kayıtlı.</div>';
+  if(msg)msg.innerHTML='<div class="ok-msg">✓ '+(kesinlestir?'Kesinleştirildi':'Taslak kaydedildi')+' — kaydediliyor…</div>';
   render();
   if(kesinlestir&&oncekiDurum!=='kesinlesen'&&rows.some(r=>r.durum==='Yetersiz')){
     gbModalGoster(existing);
   }
   /* Ortak veri.js dosyası daha önce (Yönetim > veri.js İndir > "Doğrudan kaydet") bir kez
      bağlandıysa sessizce oraya da yazılır; bağlanmadıysa hiçbir pencere/istek açılmaz. */
-  saveVeriJsDirect(false).then(function(ok){
-    if(!ok)return;
-    var m=document.getElementById('karneMsg'); if(!m)return;
-    m.innerHTML='<div class="ok-msg">✓ '+(kesinlestir?'Kesinleştirildi':'Taslak kaydedildi')+' — bu tarayıcıda kayıtlı ve ortak veri.js dosyasına da yazıldı.</div>';
-  });
+  saveVeriJsDirect(false);
+  /* Canlı panoya (Firestore) yaz — böylece bu karne, İK/admin dahil HERKESİN
+     ekranına, hangi bilgisayardan bakarsa baksın anında yansır. */
+  if(window.SatisFB){
+    window.SatisFB.pushKarne(existing).then(function(){
+      var m=document.getElementById('karneMsg'); if(!m)return;
+      m.innerHTML='<div class="ok-msg">✓ '+(kesinlestir?'Kesinleştirildi':'Taslak kaydedildi')+' — canlı panoya yazıldı.</div>';
+    }).catch(function(e){
+      var m=document.getElementById('karneMsg'); if(!m)return;
+      m.innerHTML='<div class="err-msg">Bu cihazda kaydedildi ama canlı panoya yazılamadı: '+e.message+'</div>';
+    });
+  }
 }
 function karneYazdirSatirlar(k){
   return (k.metrikler||[]).map(function(r){
@@ -4703,6 +4724,7 @@ function karneCiktiAl(id){
     render();
     toast('✓ Çıktı alındı ve kaydedildi (artık düzenlenemez)');
     saveVeriJsDirect(false);
+    if(window.SatisFB)window.SatisFB.pushKarne(k).catch(function(e){toast('⚠ Canlı panoya yazılamadı: '+e.message);});
   }
   karneYazdirAc(k);
 }
@@ -5095,7 +5117,8 @@ function bindKarneDynamic(){
       WORK.karneler=(WORK.karneler||[]).filter(function(x){return x.id!==k.id;});
       VERI.karneler=WORK.karneler; karneSaveLocal();
       render();
-      saveVeriJsDirect(false).then(function(ok){toast(ok?'✓ Karne silindi ve veri.js\'e yazıldı.':'✓ Karne silindi (bu oturum için).');});
+      saveVeriJsDirect(false);
+      if(window.SatisFB)window.SatisFB.deleteKarne(k.id).then(function(){toast('✓ Karne silindi ve canlı panodan kaldırıldı.');}).catch(function(e){toast('⚠ Canlı panodan silinemedi: '+e.message);});
     };
   });
   var kYil=document.getElementById('kYil'), kAy=document.getElementById('kAy'), kDan=document.getElementById('kDan');
@@ -5838,7 +5861,9 @@ if('serviceWorker' in navigator){window.addEventListener('load',function(){navig
      window.SatisFB ve window.onSatisVeriUpdate ile haberleşir. -->
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-  import { getFirestore, doc, setDoc, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+  import {
+    getFirestore, doc, setDoc, deleteDoc, collection, onSnapshot, serverTimestamp
+  } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyCWlB0nU-ETZxuo9xa6gG4VMYVu09P3fnE",
@@ -5851,11 +5876,21 @@ if('serviceWorker' in navigator){window.addEventListener('load',function(){navig
   const app = initializeApp(firebaseConfig, "satis-panosu");
   const db = getFirestore(app);
   const veriRef = doc(db, "satisVeri", "current");
+  const karnelerCol = collection(db, "satisKarneler");
 
   window.SatisFB = {
     latest: null,
+    karneler: null,
     push(payload) {
       return setDoc(veriRef, Object.assign({}, payload, { updatedAt: serverTimestamp() }), { merge: true });
+    },
+    pushKarne(karne) {
+      // JSON round-trip strips any `undefined` fields Firestore would reject.
+      const clean = JSON.parse(JSON.stringify(karne));
+      return setDoc(doc(karnelerCol, karne.id), Object.assign({}, clean, { updatedAt: serverTimestamp() }));
+    },
+    deleteKarne(id) {
+      return deleteDoc(doc(karnelerCol, id));
     }
   };
 
@@ -5865,6 +5900,12 @@ if('serviceWorker' in navigator){window.addEventListener('load',function(){navig
     window.SatisFB.latest = data;
     if (typeof window.onSatisVeriUpdate === "function") window.onSatisVeriUpdate(data);
   }, (err) => console.error("Canlı satış verisi dinlenemedi:", err));
+
+  onSnapshot(karnelerCol, (snap) => {
+    const list = snap.docs.map((d) => d.data());
+    window.SatisFB.karneler = list;
+    if (typeof window.onKarnelerUpdate === "function") window.onKarnelerUpdate(list);
+  }, (err) => console.error("Canlı karne verisi dinlenemedi:", err));
 </script>
 </body>
 </html>
