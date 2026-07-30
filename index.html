@@ -5446,6 +5446,32 @@ var XL_BMAP={"Peugeot":"Peugeot Toplam","Citroen":"Citroen Toplam","Opel":"Opel 
   "Fiat":"Fiat Toplam","Honda":"Honda Toplam","Arj":"Arj Toplam","Bmw":"BMW Toplam",
   "Mini":"MINI Toplam","Jaecoo":"Jaecoo Toplam","Otokoc":"Otokoç Toplam",
   "2.El":"2.El Toplam","Bps":"BPS Toplam","Bmw Motorrad":null};
+/* ---- Marka takma adları: aynı iş birimi farklı dönemlerde/sayfalarda farklı
+   isimlerle geçebiliyor (ör. "Otokoç" markası "Spoticar" olarak yeniden
+   markalandı ama Excel'de ikisi de ayrı ayrı satır olarak duruyor). Burada
+   hepsini TEK, zaten sayfada kullanılan kanonik isme ("2.El") indirgiyoruz ki
+   hedef/fiili toplamları ve bütçe eşleşmesi (XL_BMAP) bölünmeden çalışsın. ---- */
+var MARKA_ALIAS={'otokoc':'2.El','spoticar':'2.El'};
+function canonMarka(m){
+  var t=String(m||'').trim();
+  return MARKA_ALIAS[trLower(t)]||t;
+}
+/* Takma adlar birleşince aynı danışman/ay için iki ayrı satır ("Otokoç" +
+   "Spoticar") aynı markaya ("2.El") düşer — bunları TEK satırda toplar
+   (karneFact gibi .find() ile tek satır bekleyen yerler bölünmüş veri görmesin). */
+function mergeFactDuplicates(facts){
+  var map={}, order=[];
+  facts.forEach(function(f){
+    var key=f.yil+'|'+f.ay+'|'+f.marka+'|'+f.danisman;
+    if(map[key]){
+      map[key].hedef+=f.hedef; map[key].fiili+=f.fiili; map[key].filo+=(f.filo||0);
+    }else{
+      map[key]=Object.assign({},f);
+      order.push(key);
+    }
+  });
+  return order.map(function(k){return map[k];});
+}
 function xlsxToVeri(rowsDATA,rowsBUTCE){
   var head=rowsDATA[1]||{}, colOf={};
   Object.keys(head).forEach(function(c){if(head[c]!=null)colOf[trLower(String(head[c])).trim()]=c;});
@@ -5468,9 +5494,10 @@ function xlsxToVeri(rowsDATA,rowsBUTCE){
     var yil=parseInt(c[cY],10)||new Date().getFullYear();
     var famt=toi(c[cF]);
     var isFilo=cDep?trLower(String(c[cDep]||'')).indexOf('filo')>=0:false;
-    facts.push({yil:yil,ay:ay,marka:String(marka).trim(),danisman:trTitle(String(dan)),
+    facts.push({yil:yil,ay:ay,marka:canonMarka(marka),danisman:trTitle(String(dan)),
                 hedef:toi(c[cH]),fiili:isFilo?0:famt,filo:isFilo?famt:0});
   }
+  facts=mergeFactDuplicates(facts);
   var bd=parseButce(rowsBUTCE,[...new Set(facts.map(function(f){return f.marka;}))]);
   return {facts:facts,butce:bd.butce,butceDetay:bd.butceDetay};
 }
@@ -5593,12 +5620,12 @@ function factsFromHedefFiili(rowsHEDEF,rowsFIILI,rowsLISTE){
       var isFilo=trLower(String(depSrc||'')).indexOf('filo')>=0;
       var unvan=person?person.unvan:(cUnvF?cc[cUnvF]:'');
       var durum=person?person.durum:'';
-      facts.push({yil:yil,ay:ay,marka:String(marka).trim(),danisman:danNorm,
+      facts.push({yil:yil,ay:ay,marka:canonMarka(marka),danisman:danNorm,
                   hedef:hedefMap[key]||0,fiili:isFilo?0:famt,filo:isFilo?famt:0,
                   unvan:unvan||'',durum:durum||''});
     }
   }
-  return facts;
+  return mergeFactDuplicates(facts);
 }
 function applyExcelData(res,lastMod){
   var allM=DIM.markalar.length&&FLT.markalar.size===DIM.markalar.length;
