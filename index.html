@@ -5518,12 +5518,13 @@ function buildTcMap(rowsLISTE){
   if(!rowsLISTE)return map;
   var col=colMapFromHeader(rowsLISTE);
   var cTC=findColIn(col,['kimlik']), cDep=findColIn(col,['departman']),
-      cBol=findColIn(col,['bölüm','bolum']), cUnv=findColIn(col,['unvan']);
+      cBol=findColIn(col,['bölüm','bolum']), cUnv=findColIn(col,['unvan']),
+      cDurum=findColIn(col,['çalışma','durum']);
   if(!cTC)return map;
   for(var r=2;r<rowsLISTE.length;r++){
     var c=rowsLISTE[r]; if(!c)continue;
     var key=normTC(c[cTC]); if(!key)continue;
-    map[key]={departman:c[cDep]||'',bolum:c[cBol]||'',unvan:c[cUnv]||''};
+    map[key]={departman:c[cDep]||'',bolum:c[cBol]||'',unvan:c[cUnv]||'',durum:c[cDurum]||''};
   }
   return map;
 }
@@ -5574,7 +5575,7 @@ function factsFromHedefFiili(rowsHEDEF,rowsFIILI,rowsLISTE){
     var cAyF=findColIn(cF,['ay']), cYF=findColIn(cF,['yil','yıl']),
         cMF=findColIn(cF,['plaza','marka']), cDF=findColIn(cF,['danis','daniş']),
         cFiF=findColIn(cF,['fiili']), cDepF=findColIn(cF,['departman','bölüm','bolum']),
-        cUserF=findColIn(cF,['username']);
+        cUnvF=findColIn(cF,['unvan']), cUserF=findColIn(cF,['username']);
     for(var r2=2;r2<rowsFIILI.length;r2++){
       var cc=rowsFIILI[r2]; if(!cc)continue;
       var marka=cc[cMF], dan=cc[cDF]; if(marka==null||dan==null||String(marka).trim()===''||String(dan).trim()==='')continue;
@@ -5583,13 +5584,18 @@ function factsFromHedefFiili(rowsHEDEF,rowsFIILI,rowsLISTE){
       var danNorm=trTitle(String(dan));
       var key=yil+'|'+ay+'|'+trLower(String(marka).trim())+'|'+trLower(danNorm);
       var famt=toi(cc[cFiF]);
-      /* Departmanı önce GÜNCEL LİSTE'den (TC ile) çöz; Excel'in kendi
-         VLOOKUP'ı bazı satırlarda "Bulunamadı" üretmiş olsa bile doğru sonuç alınır. */
+      /* Departman/Unvan/Durum'u önce GÜNCEL LİSTE'den (TC ile) çöz; Excel'in kendi
+         VLOOKUP'ı bazı satırlarda "Bulunamadı" üretmiş olsa bile doğru sonuç alınır.
+         Karne ekranındaki "aktif satış danışmanı" listesi (karneRoster) tam olarak
+         bu unvan+durum alanlarına bakar — eksik kalırlarsa liste hep boş görünür. */
       var person=cUserF?resolveTC(tcMap,cc[cUserF]):null;
       var depSrc=person?person.departman:(cDepF?cc[cDepF]:'');
       var isFilo=trLower(String(depSrc||'')).indexOf('filo')>=0;
+      var unvan=person?person.unvan:(cUnvF?cc[cUnvF]:'');
+      var durum=person?person.durum:'';
       facts.push({yil:yil,ay:ay,marka:String(marka).trim(),danisman:danNorm,
-                  hedef:hedefMap[key]||0,fiili:isFilo?0:famt,filo:isFilo?famt:0});
+                  hedef:hedefMap[key]||0,fiili:isFilo?0:famt,filo:isFilo?famt:0,
+                  unvan:unvan||'',durum:durum||''});
     }
   }
   return facts;
