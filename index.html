@@ -5446,33 +5446,70 @@ function xlsxToVeri(rowsDATA,rowsBUTCE){
     facts.push({yil:yil,ay:ay,marka:String(marka).trim(),danisman:trTitle(String(dan)),
                 hedef:toi(c[cH]),fiili:isFilo?0:famt,filo:isFilo?famt:0});
   }
-  var butce=null,butceDetay=null;
-  if(rowsBUTCE){
-    var brows={};
-    for(var r2=1;r2<rowsBUTCE.length;r2++){
-      var cc=rowsBUTCE[r2]; if(!cc)continue;
-      for(var col in cc){
-        var v=cc[col];
-        if(typeof v==='string'&&/(Toplam|Perakende|Filo)$/.test(v.trim())){
-          var base=colNum(col),arr=[];
-          for(var i2=1;i2<=12;i2++){var nv=cc[numCol(base+i2)];arr.push(typeof nv==='number'?Math.round(nv):(parseInt(nv,10)||0));}
-          brows[v.trim()]=arr; break;
-        }
+  var bd=parseButce(rowsBUTCE,[...new Set(facts.map(function(f){return f.marka;}))]);
+  return {facts:facts,butce:bd.butce,butceDetay:bd.butceDetay};
+}
+
+/* ---- BÜTÇE sayfasını oku: her etiket hücresinin ("... Toplam/Perakende/Filo")
+   hemen sağındaki 12 sütun o markanın aylık bütçesidir. DATA yolu ve
+   Hedef+Fiili yedek yolu bu fonksiyonu ORTAK kullanır (ikisi de aynı BÜTÇE
+   sayfasını okur; tek yerde tanımlayıp iki yerde de doğru çalışmasını sağlar). ---- */
+function parseButce(rowsBUTCE,brands){
+  if(!rowsBUTCE)return {butce:null,butceDetay:null};
+  var brows={};
+  for(var r2=1;r2<rowsBUTCE.length;r2++){
+    var cc=rowsBUTCE[r2]; if(!cc)continue;
+    for(var col in cc){
+      var v=cc[col];
+      if(typeof v==='string'&&/(Toplam|Perakende|Filo)$/.test(v.trim())){
+        var base=colNum(col),arr=[];
+        for(var i2=1;i2<=12;i2++){var nv=cc[numCol(base+i2)];arr.push(typeof nv==='number'?Math.round(nv):(parseInt(nv,10)||0));}
+        brows[v.trim()]=arr; break;
       }
     }
-    butce={};butceDetay={};
-    [...new Set(facts.map(function(f){return f.marka;}))].forEach(function(m){
-      var lbl=XL_BMAP.hasOwnProperty(m)?XL_BMAP[m]:(m+' Toplam');
-      butce[m]=(lbl&&brows[lbl])?brows[lbl]:[0,0,0,0,0,0,0,0,0,0,0,0];
-      if(lbl){
-        var pre=lbl.replace(/ Toplam$/,'');
-        var per=brows[pre+' Perakende'],flo=brows[pre+' Filo'];
-        if(per||flo)butceDetay[m]={perakende:per||[0,0,0,0,0,0,0,0,0,0,0,0],
-                                   filo:flo||[0,0,0,0,0,0,0,0,0,0,0,0]};
-      }
-    });
   }
-  return {facts:facts,butce:butce,butceDetay:butceDetay};
+  var butce={},butceDetay={};
+  brands.forEach(function(m){
+    var lbl=XL_BMAP.hasOwnProperty(m)?XL_BMAP[m]:(m+' Toplam');
+    butce[m]=(lbl&&brows[lbl])?brows[lbl]:[0,0,0,0,0,0,0,0,0,0,0,0];
+    if(lbl){
+      var pre=lbl.replace(/ Toplam$/,'');
+      var per=brows[pre+' Perakende'],flo=brows[pre+' Filo'];
+      if(per||flo)butceDetay[m]={perakende:per||[0,0,0,0,0,0,0,0,0,0,0,0],
+                                 filo:flo||[0,0,0,0,0,0,0,0,0,0,0,0]};
+    }
+  });
+  return {butce:butce,butceDetay:butceDetay};
+}
+
+/* ---- 'GÜNCEL LİSTE' (personel roster) → TC (Kimlik Numarası) ile eşleşen
+   Departman/Bölüm/Unvan sözlüğü. Hedef/Fiili sayfalarındaki "Username" bazı
+   satırlarda 11 haneli TC'nin sonuna fazladan bir hane eklenmiş halde geliyor
+   (Excel'in kendi VLOOKUP'ı bu yüzden bu satırlarda "Bulunamadı" üretiyor);
+   burada TC'yi rakamlara indirip, 12 haneliyse son haneyi atarak eşleştiriyoruz. ---- */
+function normTC(v){return String(v==null?'':v).replace(/\D/g,'');}
+function buildTcMap(rowsLISTE){
+  var map={};
+  if(!rowsLISTE)return map;
+  var col=colMapFromHeader(rowsLISTE);
+  var cTC=findColIn(col,['kimlik']), cDep=findColIn(col,['departman']),
+      cBol=findColIn(col,['bölüm','bolum']), cUnv=findColIn(col,['unvan']);
+  if(!cTC)return map;
+  for(var r=2;r<rowsLISTE.length;r++){
+    var c=rowsLISTE[r]; if(!c)continue;
+    var key=normTC(c[cTC]); if(!key)continue;
+    map[key]={departman:c[cDep]||'',bolum:c[cBol]||'',unvan:c[cUnv]||''};
+  }
+  return map;
+}
+function resolveTC(tcMap,raw){
+  var key=normTC(raw);
+  if(tcMap[key])return tcMap[key];
+  if(key.length===12){
+    if(tcMap[key.slice(0,11)])return tcMap[key.slice(0,11)];
+    if(tcMap[key.slice(1)])return tcMap[key.slice(1)];
+  }
+  return null;
 }
 
 /* ---- Yedek yol: 'DATA' sayfası yoksa ham 'Hedef' + 'Fiili' sayfalarından birleştir.
@@ -5484,10 +5521,11 @@ function colMapFromHeader(rows){
   return colOf;
 }
 function findColIn(colOf,keys){for(var i=0;i<keys.length;i++)for(var h in colOf) if(h.indexOf(keys[i])>=0)return colOf[h]; return null;}
-function factsFromHedefFiili(rowsHEDEF,rowsFIILI){
+function factsFromHedefFiili(rowsHEDEF,rowsFIILI,rowsLISTE){
   var toi=function(v){var n=parseFloat(String(v==null?0:v).replace(',','.'));return isFinite(n)?Math.round(n):0;};
   var ayMap={};AYLAR.forEach(function(a,i){ayMap[trLower(a)]=i+1;});
   function parseAy(av){return typeof av==='number'?Math.round(av):(parseInt(av,10)||ayMap[trLower(String(av||''))]||0);}
+  var tcMap=buildTcMap(rowsLISTE);
 
   var hedefMap={};
   if(rowsHEDEF){
@@ -5510,7 +5548,8 @@ function factsFromHedefFiili(rowsHEDEF,rowsFIILI){
     var cF=colMapFromHeader(rowsFIILI);
     var cAyF=findColIn(cF,['ay']), cYF=findColIn(cF,['yil','yıl']),
         cMF=findColIn(cF,['plaza','marka']), cDF=findColIn(cF,['danis','daniş']),
-        cFiF=findColIn(cF,['fiili']), cDepF=findColIn(cF,['departman','bölüm','bolum']);
+        cFiF=findColIn(cF,['fiili']), cDepF=findColIn(cF,['departman','bölüm','bolum']),
+        cUserF=findColIn(cF,['username']);
     for(var r2=2;r2<rowsFIILI.length;r2++){
       var cc=rowsFIILI[r2]; if(!cc)continue;
       var marka=cc[cMF], dan=cc[cDF]; if(marka==null||dan==null||String(marka).trim()===''||String(dan).trim()==='')continue;
@@ -5519,7 +5558,11 @@ function factsFromHedefFiili(rowsHEDEF,rowsFIILI){
       var danNorm=trTitle(String(dan));
       var key=yil+'|'+ay+'|'+trLower(String(marka).trim())+'|'+trLower(danNorm);
       var famt=toi(cc[cFiF]);
-      var isFilo=cDepF?trLower(String(cc[cDepF]||'')).indexOf('filo')>=0:false;
+      /* Departmanı önce GÜNCEL LİSTE'den (TC ile) çöz; Excel'in kendi
+         VLOOKUP'ı bazı satırlarda "Bulunamadı" üretmiş olsa bile doğru sonuç alınır. */
+      var person=cUserF?resolveTC(tcMap,cc[cUserF]):null;
+      var depSrc=person?person.departman:(cDepF?cc[cDepF]:'');
+      var isFilo=trLower(String(depSrc||'')).indexOf('filo')>=0;
       facts.push({yil:yil,ay:ay,marka:String(marka).trim(),danisman:danNorm,
                   hedef:hedefMap[key]||0,fiili:isFilo?0:famt,filo:isFilo?famt:0});
     }
@@ -5564,7 +5607,10 @@ async function readExcelFile(f){
     }else{
       var hedefRows=await wb.sheetRows('Hedef'), fiiliRows=await wb.sheetRows('Fiili');
       if(!fiiliRows)throw new Error("'DATA' sayfası bulunamadı (sayfalar: "+wb.sheetNames.join(', ')+")");
-      res={facts:factsFromHedefFiili(hedefRows,fiiliRows),butce:null,butceDetay:null};
+      var listeRows=await wb.sheetRows('GÜNCEL LİSTE');
+      var hffFacts=factsFromHedefFiili(hedefRows,fiiliRows,listeRows);
+      var hffBd=parseButce(await wb.sheetRows('BÜTÇE'),[...new Set(hffFacts.map(function(f){return f.marka;}))]);
+      res={facts:hffFacts,butce:hffBd.butce,butceDetay:hffBd.butceDetay};
     }
     if(!res.facts.length)throw new Error('DATA sayfasında geçerli satır yok');
     XL.connected=true; XL.fileName=f.name; XL.lastMod=f.lastModified; XL.error=null; XL.needsPerm=false; XL.lost=false;
