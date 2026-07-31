@@ -4471,8 +4471,12 @@ function karneOkuFormdan(yil,ay){
 }
 function karneKaydet(kesinlestir){
   var msg=document.getElementById('karneMsg');
-  var kendiUser=WORK.users.find(u=>u.kullanici===SES.kullanici);
-  var marka=kendiUser&&kendiUser.marka;
+  /* Hesaptaki ham marka değil (çoklu marka için "ARJ,FIAT" gibi virgüllü bir
+     dize olabilir, ya da tek markalarda "CITROEN" gibi kanonik olmayan bir
+     yazım), viewKarneMudur'ün zaten çözüp seçtirdiği TEK ve kanonik marka
+     kullanılır — aksi halde kaydedilen karne admin'in marka filtresiyle
+     hiçbir zaman eşleşmez. */
+  var marka=karneMudurMarkaSec;
   var yilEl=document.getElementById('kYil'), ayEl=document.getElementById('kAy'), danEl=document.getElementById('kDan');
   if(!marka||!yilEl||!ayEl||!danEl||!danEl.value){if(msg)msg.innerHTML='<div class="err-msg">Dönem/Danışman bulunamadı.</div>';return;}
   var yil=+yilEl.value, ay=+ayEl.value, dan=danEl.value;
