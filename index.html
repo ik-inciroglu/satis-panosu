@@ -17,7 +17,7 @@
   --brand:#16324e; --brand-2:#1f456b; --accent:#c9a227; --accent-2:#e0be4f;
   --page:#eef1f4; --surface:#ffffff; --surface-2:#f7f8fa;
   --ink:#0e1b28; --ink-2:#52514e; --muted:#8a8f96; --grid:#e6e8ec; --line:#cfd4da;
-  --s-butce:#2a78d6; --s-hedef:#eda100; --s-fiili:#1baf7a; --s-filo:#7c5cbf;
+  --s-butce:#2a78d6; --s-hedef:#eda100; --s-fiili:#1baf7a;
   --ok:#0ca30c; --warn:#e8930c; --bad:#d03b3b; --serious:#ec835a;
   --radius:12px; --shadow:0 1px 3px rgba(16,27,40,.08),0 8px 24px rgba(16,27,40,.06);
   --font:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
@@ -26,7 +26,7 @@
  :root{
   --page:#0d0f12; --surface:#181b1f; --surface-2:#202329;
   --ink:#f2f4f7; --ink-2:#c3c2b7; --muted:#9aa0a6; --grid:#2b2f35; --line:#3a3f46;
-  --s-butce:#3987e5; --s-hedef:#c98500; --s-fiili:#199e70; --s-filo:#9b7ee0;
+  --s-butce:#3987e5; --s-hedef:#c98500; --s-fiili:#199e70;
   --shadow:0 1px 3px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.3);
  }
 }
@@ -4045,12 +4045,14 @@ function render(){
 }
 
 function viewGenel(rows,effMarkalar){
-  /* Filo, ayrı bir "marka" olarak değil, her satırın kendi .filo alanında tutulur
-     (bkz. factsFromHedefFiili / xlsxToVeri) — bu yüzden filo hariç toplamlar için
-     markaya göre değil, .filo alanına göre ayırıyoruz. */
-  var rowsNF=rows, effMarkalarNF=effMarkalar;
+  /* "FİLO" artık kendi başına bağımsız bir marka (bkz. factsFromHedefFiili) —
+     Toplam İç Hedef/Fiili/Bütçe gibi genel (perakende) KPI'lar bu markayı
+     hariç tutar; kendisi ise aşağıdaki marka grafiğinde Citroen/Peugeot/Bmw
+     ile yan yana kendi çubuğuyla zaten görünür. */
+  var rowsNF=rows.filter(r=>r.marka!=='FİLO'), rowsFilo=rows.filter(r=>r.marka==='FİLO');
+  var effMarkalarNF=new Set([...effMarkalar].filter(m=>m!=='FİLO'));
   var th=rowsNF.reduce((s,r)=>s+r.hedef,0), tf=rowsNF.reduce((s,r)=>s+r.fiili,0);
-  var tfFilo=rowsNF.reduce((s,r)=>s+(r.filo||0),0);
+  var tfFilo=rowsFilo.reduce((s,r)=>s+r.fiili,0);
   var oran=th?tf/th:null;
   var danSay=new Set(rowsNF.map(r=>r.danisman)).size;
   var tBu=butceToplam(effMarkalarNF,aktifAylar());
@@ -4060,7 +4062,7 @@ function viewGenel(rows,effMarkalar){
    +kpiCard('k-fiili','Toplam Fiili',fmtInt(tf)+(tfFilo?'<div style="font-size:11px;font-weight:600;color:var(--muted);margin-top:3px">+ Filo fiili: '+fmtInt(tfFilo)+' adet (toplama dahil değil)</div>':''),(tf>=th?'▲':'▼')+' hedefe göre '+fmtInt(tf-th))
    +kpiCard('k-oran','Gerçekleşme %',fmtPct(oran),'Fiili / İç Hedef (filo hariç)')
    +kpiCard('k-rank','Bütçeye Göre Hedef Tutturma Alanı',fmtPct(oranBu),(tBu?'Bütçe: '+fmtInt(tBu)+' adet · ':'')+'Fiili / Bütçe (filo hariç)');
-  // marka grouped bar (filo kendi çubuğuyla dahil kalır, sadece departman kırılımı)
+  // marka grouped bar — Filo, diğer markalarla eşit şekilde kendi çubuğuyla görünür
   var byM=aggBy(rows,'marka'), mkKeys=Object.keys(byM).sort((a,b)=>byM[b].fiili-byM[a].fiili);
   var mkYtd=mkKeys.map(function(k){
     var d=byM[k], o=d.hedef?d.fiili/d.hedef:null, st=statusOf(o);
@@ -4070,16 +4072,14 @@ function viewGenel(rows,effMarkalar){
   var mkChart=groupedBar(mkKeys,[
     {name:'İç Hedef',color:'var(--s-hedef)',values:mkKeys.map(k=>byM[k].hedef)},
     {name:'Fiili',color:'var(--s-fiili)',values:mkKeys.map(k=>byM[k].fiili)},
-    {name:'Bütçe',color:'var(--s-butce)',values:mkKeys.map(k=>butceToplam(new Set([k]),aktifAylar()))},
-    {name:'Filo',color:'var(--s-filo)',values:mkKeys.map(k=>byM[k].filo)}
+    {name:'Bütçe',color:'var(--s-butce)',values:mkKeys.map(k=>butceToplam(new Set([k]),aktifAylar()))}
   ],{h:340,w:1500,topLabels:mkYtd});
   // aylık trend (nokta üzerinde rakam etiketli)
   var ays=aktifAylar();
   var trend=lineChart(ays.map(a=>AYLAR[a-1].slice(0,3)),[
-    {name:'İç Hedef',color:'var(--s-hedef)',values:ays.map(a=>rows.filter(r=>r.ay===a).reduce((s,r)=>s+r.hedef,0))},
-    {name:'Fiili',color:'var(--s-fiili)',values:ays.map(a=>rows.filter(r=>r.ay===a).reduce((s,r)=>s+r.fiili,0))},
-    {name:'Bütçe',color:'var(--s-butce)',values:ays.map(a=>butceToplam(effMarkalarNF,new Set([a])))},
-    {name:'Filo',color:'var(--s-filo)',values:ays.map(a=>rows.filter(r=>r.ay===a).reduce((s,r)=>s+(r.filo||0),0))}
+    {name:'İç Hedef',color:'var(--s-hedef)',values:ays.map(a=>rowsNF.filter(r=>r.ay===a).reduce((s,r)=>s+r.hedef,0))},
+    {name:'Fiili',color:'var(--s-fiili)',values:ays.map(a=>rowsNF.filter(r=>r.ay===a).reduce((s,r)=>s+r.fiili,0))},
+    {name:'Bütçe',color:'var(--s-butce)',values:ays.map(a=>butceToplam(effMarkalarNF,new Set([a])))}
   ],{h:280,w:1500});
   // aylık hedef tutturan / tutturamayan danışman sayısı
   var tutS=[], notS=[];
@@ -4123,9 +4123,9 @@ function viewGenel(rows,effMarkalar){
   ],{w:210,h:210});
   return '<div class="kpis">'+kpi+'</div>'
     +'<div class="card"><h3>Marka Bazında İç Hedef vs Fiili vs Bütçe</h3><div class="csub">Seçili döneme göre, fiiliye göre sıralı</div>'
-      +legend([{name:'İç Hedef',color:'var(--s-hedef)'},{name:'Fiili',color:'var(--s-fiili)'},{name:'Bütçe',color:'var(--s-butce)'},{name:'Filo',color:'var(--s-filo)'}])+mkChart+'</div>'
+      +legend([{name:'İç Hedef',color:'var(--s-hedef)'},{name:'Fiili',color:'var(--s-fiili)'},{name:'Bütçe',color:'var(--s-butce)'}])+mkChart+'</div>'
     +'<div class="card"><h3>Aylık Trend</h3><div class="csub">Seçili aylar</div>'
-      +legend([{name:'İç Hedef',color:'var(--s-hedef)'},{name:'Fiili',color:'var(--s-fiili)'},{name:'Bütçe',color:'var(--s-butce)'},{name:'Filo',color:'var(--s-filo)'}])+trend+'</div>'
+      +legend([{name:'İç Hedef',color:'var(--s-hedef)'},{name:'Fiili',color:'var(--s-fiili)'},{name:'Bütçe',color:'var(--s-butce)'}])+trend+'</div>'
     +'<div class="grid2">'
     +'<div class="card"><h3>Hedef Tutturma Durumu</h3><div class="csub">Seçili dönemde danışman dağılımı</div>'
       +'<div style="display:flex;align-items:center;gap:22px;flex-wrap:wrap">'+donut
@@ -4352,46 +4352,23 @@ function karneById(id){return (WORK.karneler||[]).find(x=>x.id===id)||null;}
 /* Karneleri bu tarayıcıda kalıcı tut (localStorage) — hiçbir kullanıcı eylemi
    dosya seçtirme penceresi açmasın diye ana kayıt yolu budur. */
 function karneSaveLocal(){try{localStorage.setItem('sp_karneler',JSON.stringify(WORK.karneler||[]));}catch(_){}}
-/* Filo satışları ayrı bir "marka" değil, gerçek markanın (Peugeot, Fiat...)
-   satır içindeki .filo alanında, birden fazla markaya dağılmış halde tutulur
-   (bkz. isFilo / factsFromHedefFiili). Bu yüzden "FİLO" müdürü (yalnızca
-   Mehmet Göze) için roster/fiili/sube-ortalaması burada özel olarak, .filo
-   alanı üzerinden ve TÜM markalar toplanarak hesaplanır — diğer (perakende)
-   müdürlerin ekranı hiç değişmez, onlar hâlâ yalnızca .fiili'yi görür. */
+/* "FİLO" artık factsFromHedefFiili'de gerçek, bağımsız bir marka olarak
+   üretiliyor (Citroen/Peugeot/Bmw ile aynı şekle sahip) — bu yüzden roster/
+   fiili/şube-ortalaması burada özel bir dallanmaya ihtiyaç duymaz, marka
+   filtresi zaten kendiliğinden doğru ayrımı yapar. */
 function karneRoster(marka){
   var set=new Set();
   (WORK.facts||[]).forEach(function(f){
-    /* Perakende markalarda filo personeli (departmanı Filo olanlar) hiç
-       görünmesin — onlar sadece bookkeeping amacıyla o markanın satırında
-       durur, gerçek perakende danışmanı değildir. */
-    var uygun=marka==='FİLO'?!!f.filoKisi:(f.marka===marka&&!f.filoKisi);
-    if(uygun&&f.durum==='Aktif'&&(f.unvan==='Satış Danışmanı'||f.unvan==='Kıdemli Satış Danışmanı'))set.add(f.danisman);
+    if(f.marka===marka&&f.durum==='Aktif'&&(f.unvan==='Satış Danışmanı'||f.unvan==='Kıdemli Satış Danışmanı'))set.add(f.danisman);
   });
   return [...set].sort((a,b)=>a.localeCompare(b,'tr'));
 }
 function karneFact(marka,danisman,yil,ay){
-  if(marka==='FİLO'){
-    var rows=(WORK.facts||[]).filter(f=>f.danisman===danisman&&f.yil===yil&&f.ay===ay&&(f.filo||0)>0);
-    if(!rows.length)return null;
-    var hedef=rows.reduce((s,r)=>s+(r.hedef||0),0), filo=rows.reduce((s,r)=>s+(r.filo||0),0);
-    return {yil:yil,ay:ay,marka:'FİLO',danisman:danisman,hedef:hedef,fiili:filo,filo:filo,unvan:rows[0].unvan,durum:rows[0].durum};
-  }
-  return (WORK.facts||[]).find(f=>f.marka===marka&&!f.filoKisi&&f.danisman===danisman&&f.yil===yil&&f.ay===ay)||null;
+  return (WORK.facts||[]).find(f=>f.marka===marka&&f.danisman===danisman&&f.yil===yil&&f.ay===ay)||null;
 }
 function karneSubeOrt(marka,yil,ay,haric){
-  var vals;
-  if(marka==='FİLO'){
-    var byDan={};
-    (WORK.facts||[]).forEach(function(f){
-      if(f.yil===yil&&f.ay===ay&&(f.filo||0)>0&&f.danisman!==haric
-        &&(f.unvan==='Satış Danışmanı'||f.unvan==='Kıdemli Satış Danışmanı'))
-        byDan[f.danisman]=(byDan[f.danisman]||0)+f.filo;
-    });
-    vals=Object.values(byDan);
-  }else{
-    vals=(WORK.facts||[]).filter(f=>f.marka===marka&&!f.filoKisi&&f.yil===yil&&f.ay===ay&&f.danisman!==haric
-      &&(f.unvan==='Satış Danışmanı'||f.unvan==='Kıdemli Satış Danışmanı')).map(f=>f.fiili);
-  }
+  var vals=(WORK.facts||[]).filter(f=>f.marka===marka&&f.yil===yil&&f.ay===ay&&f.danisman!==haric
+    &&(f.unvan==='Satış Danışmanı'||f.unvan==='Kıdemli Satış Danışmanı')).map(f=>f.fiili);
   if(!vals.length)return null;
   return Math.round((vals.reduce((s,v)=>s+v,0)/vals.length)*10)/10;
 }
@@ -5690,9 +5667,18 @@ function factsFromHedefFiili(rowsHEDEF,rowsFIILI,rowsLISTE){
       var isFilo=trLower(String(depSrc||'')).indexOf('filo')>=0;
       var unvan=person?person.unvan:(cUnvF?cc[cUnvF]:'');
       var durum=person?person.durum:'';
-      facts.push({yil:yil,ay:ay,marka:canonMarka(marka),danisman:danNorm,
-                  hedef:hedefMap[key]||0,fiili:isFilo?0:famt,filo:isFilo?famt:0,
-                  unvan:unvan||'',durum:durum||'',filoKisi:isFilo});
+      /* Filo, gerçek markanın (Peugeot, Fiat...) içine gömülü bir sayı değil,
+         Citroen/Peugeot/Bmw gibi TAMAMEN AYRI bir marka olarak görünmeli —
+         departmanı Filo olan satırlar burada doğrudan "FİLO" markasına
+         taşınır. Bu sayede DIM.markalar, marka filtreleri, Marka Analizi
+         ve Genel Bakış grafikleri onu otomatik olarak ayrı bir marka gibi
+         listeler; ayrıca bu kişiler PSA/Peugeot gibi gerçek markaların
+         danışman listelerinde bir daha hiç görünmez (marka alanı zaten
+         farklı olduğu için ekstra bir filtre gerekmez). */
+      var finalMarka=isFilo?'FİLO':canonMarka(marka);
+      facts.push({yil:yil,ay:ay,marka:finalMarka,danisman:danNorm,
+                  hedef:hedefMap[key]||0,fiili:famt,filo:0,
+                  unvan:unvan||'',durum:durum||''});
     }
   }
   return mergeFactDuplicates(facts);
