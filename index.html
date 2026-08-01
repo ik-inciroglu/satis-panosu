@@ -5893,11 +5893,18 @@ function canonMarka(m){
   var t=String(m||'').trim();
   return MARKA_ALIAS[trLower(t)]||t;
 }
+/* Türkçe karakter/büyük-küçük harf farkı gözetmeksizin karşılaştırma için
+   ("Otokoç" / "OTOKOC" / "otokoç" hepsi aynı kabul edilsin). */
+function trFold(s){
+  return trLower(String(s||'')).replace(/ı/g,'i').replace(/ç/g,'c')
+    .replace(/ğ/g,'g').replace(/ö/g,'o').replace(/ş/g,'s').replace(/ü/g,'u');
+}
 /* Birleşen markalardan biri BÜTÇE sayfasında TEK ortak etiket yerine BİRDEN
-   FAZLA ayrı satıra bölünmüş olabilir (Jaecoo Toplam + Omoda Toplam gibi) —
-   bu durumda parseButce tek etiket aramak yerine burada listelenen etiketlerin
-   hepsini toplar. */
-var MARKA_BUDGET_LABELS={'O & J':['Jaecoo Toplam','Omoda Toplam']};
+   FAZLA ayrı satıra bölünmüş olabilir (Jaecoo Toplam + Omoda Toplam, ya da
+   Otokoç Toplam + Spoticar Toplam gibi) — bu durumda parseButce tek etiket
+   aramak yerine, burada listelenen alt-marka adlarına ("...Toplam" hariç)
+   sahip TÜM satırları (yazımı ne olursa olsun) bulup toplar. */
+var MARKA_BUDGET_LABELS={'O & J':['jaecoo','omoda'],'2.El':['otokoc','spoticar']};
 /* Takma adlar birleşince aynı danışman/ay için iki ayrı satır ("Otokoç" +
    "Spoticar") aynı markaya ("2.El") düşer — bunları TEK satırda toplar
    (karneFact gibi .find() ile tek satır bekleyen yerler bölünmüş veri görmesin). */
@@ -5962,13 +5969,22 @@ function parseButce(rowsBUTCE,brands){
       }
     }
   }
+  var z12=function(){return [0,0,0,0,0,0,0,0,0,0,0,0];};
   var butce={},butceDetay={};
   brands.forEach(function(m){
-    var multiLabels=MARKA_BUDGET_LABELS[m];
-    if(multiLabels){
-      var sum=[0,0,0,0,0,0,0,0,0,0,0,0];
-      multiLabels.forEach(function(lbl){var arr=brows[lbl]; if(arr)for(var i=0;i<12;i++)sum[i]+=arr[i];});
+    var altList=MARKA_BUDGET_LABELS[m];
+    if(altList){
+      var sum=z12(), perSum=null, floSum=null;
+      Object.keys(brows).forEach(function(lbl){
+        var mm=/^(.*)\s+(Toplam|Perakende|Filo)$/.exec(lbl); if(!mm)return;
+        if(altList.indexOf(trFold(mm[1]))<0)return;
+        var arr=brows[lbl], tur=mm[2];
+        if(tur==='Toplam'){for(var i=0;i<12;i++)sum[i]+=arr[i];}
+        else if(tur==='Perakende'){perSum=perSum||z12();for(var i=0;i<12;i++)perSum[i]+=arr[i];}
+        else{floSum=floSum||z12();for(var i=0;i<12;i++)floSum[i]+=arr[i];}
+      });
       butce[m]=sum;
+      if(perSum||floSum)butceDetay[m]={perakende:perSum||z12(),filo:floSum||z12()};
       return;
     }
     var lbl=XL_BMAP.hasOwnProperty(m)?XL_BMAP[m]:(m+' Toplam');
