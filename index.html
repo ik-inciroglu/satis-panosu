@@ -5900,11 +5900,15 @@ function trFold(s){
     .replace(/ğ/g,'g').replace(/ö/g,'o').replace(/ş/g,'s').replace(/ü/g,'u');
 }
 /* Birleşen markalardan biri BÜTÇE sayfasında TEK ortak etiket yerine BİRDEN
-   FAZLA ayrı satıra bölünmüş olabilir (Jaecoo Toplam + Omoda Toplam, ya da
-   Otokoç Toplam + Spoticar Toplam gibi) — bu durumda parseButce tek etiket
-   aramak yerine, burada listelenen alt-marka adlarına ("...Toplam" hariç)
-   sahip TÜM satırları (yazımı ne olursa olsun) bulup toplar. */
-var MARKA_BUDGET_LABELS={'O & J':['jaecoo','omoda'],'2.El':['otokoc','spoticar']};
+   FAZLA ayrı satıra bölünmüş olabilir (Jaecoo Toplam + Omoda Toplam gibi,
+   FARKLI etiketlerle) — bu durumda parseButce tek etiket aramak yerine,
+   burada listelenen alt-marka adlarına ("...Toplam" hariç) sahip TÜM
+   satırları (yazımı ne olursa olsun) bulup toplar. NOT: "2.El" bu listede
+   YOK çünkü Otokoç/Spoticar satırları BÜTÇE sayfasında ayrı isimlerle değil,
+   İKİSİ DE "2.El Toplam" etiketiyle (aynı metin, iki satır) giriliyor — bu
+   durum aşağıdaki brows oluşturma döngüsünde aynı etiketin tekrarında
+   ÜZERİNE YAZMAK yerine TOPLAMA alınarak otomatik çözülüyor. */
+var MARKA_BUDGET_LABELS={'O & J':['jaecoo','omoda']};
 /* Takma adlar birleşince aynı danışman/ay için iki ayrı satır ("Otokoç" +
    "Spoticar") aynı markaya ("2.El") düşer — bunları TEK satırda toplar
    (karneFact gibi .find() ile tek satır bekleyen yerler bölünmüş veri görmesin). */
@@ -5963,9 +5967,15 @@ function parseButce(rowsBUTCE,brands){
     for(var col in cc){
       var v=cc[col];
       if(typeof v==='string'&&/(Toplam|Perakende|Filo)$/.test(v.trim())){
-        var base=colNum(col),arr=[];
+        var base=colNum(col),arr=[],key=v.trim();
         for(var i2=1;i2<=12;i2++){var nv=cc[numCol(base+i2)];arr.push(typeof nv==='number'?Math.round(nv):(parseInt(nv,10)||0));}
-        brows[v.trim()]=arr; break;
+        /* Aynı etiket ("2.El Toplam" gibi) BÜTÇE sayfasında birden fazla
+           satırda tekrar edebiliyor (ör. Otokoç ve Spoticar için ayrı satır
+           ama İKİSİ DE aynı metinle etiketlenmiş) — üzerine yazmak yerine
+           TOPLAYARAK ikinci satırın kaybolmasını önlüyoruz. */
+        if(brows[key])for(var i3=0;i3<12;i3++)brows[key][i3]+=arr[i3];
+        else brows[key]=arr;
+        break;
       }
     }
   }
