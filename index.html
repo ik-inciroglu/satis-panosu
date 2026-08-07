@@ -3755,14 +3755,17 @@ function startApp(){
   if(!WORK.karneler)WORK.karneler=[];
   if(!WORK.tebligler)WORK.tebligler=[];
   if(!WORK.eskiCalisanlar)WORK.eskiCalisanlar=[];
+  if(!WORK.manuelDanismanlar)WORK.manuelDanismanlar=[];
   /* Karneler bu tarayıcıda daha önce kaydedildiyse (localStorage), o sürüm esas alınır —
      dosyayı her seferinde ortak veri.js'e yazmaya çalışmadan "kayıtlı kalması" için. */
   try{var lc=localStorage.getItem('sp_karneler');if(lc)WORK.karneler=JSON.parse(lc);}catch(_){}
   try{var lt=localStorage.getItem('sp_tebligler');if(lt)WORK.tebligler=JSON.parse(lt);}catch(_){}
   try{var le=localStorage.getItem('sp_eskicalisanlar');if(le)WORK.eskiCalisanlar=JSON.parse(le);}catch(_){}
+  try{var lm=localStorage.getItem('sp_manueldanismanlar');if(lm)WORK.manuelDanismanlar=JSON.parse(lm);}catch(_){}
   if(!VERI.karneler)VERI.karneler=WORK.karneler;
   if(!VERI.tebligler)VERI.tebligler=WORK.tebligler;
   if(!VERI.eskiCalisanlar)VERI.eskiCalisanlar=WORK.eskiCalisanlar;
+  if(!VERI.manuelDanismanlar)VERI.manuelDanismanlar=WORK.manuelDanismanlar;
   document.getElementById('login').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
   document.getElementById('whoName').textContent=SES.ad;
@@ -3810,6 +3813,10 @@ function applyLiveVeri(data){
   if(data.eskiCalisanlar){
     VERI.eskiCalisanlar=data.eskiCalisanlar; if(WORK)WORK.eskiCalisanlar=data.eskiCalisanlar;
     try{localStorage.setItem('sp_eskicalisanlar',JSON.stringify(data.eskiCalisanlar));}catch(_){}
+  }
+  if(data.manuelDanismanlar){
+    VERI.manuelDanismanlar=data.manuelDanismanlar; if(WORK)WORK.manuelDanismanlar=data.manuelDanismanlar;
+    try{localStorage.setItem('sp_manueldanismanlar',JSON.stringify(data.manuelDanismanlar));}catch(_){}
   }
   if(!VERI.meta)VERI.meta={};
   VERI.meta.guncelleme=data.guncelleme||VERI.meta.guncelleme;
@@ -4342,7 +4349,7 @@ function adminSaglik(){
    olarak İK'ya elden teslim eder. Çıktısı alınan karne artık değiştirilemez. */
 var KARNE_METRIKLER=[
  {key:'arac_satis',ad:'Araç Satış Adedi',tip:'oto'},
- {key:'kasko',ad:'Kasko / Sigorta Penetrasyonu',tip:'sayi',ipucu:'Önerilen hedef: Araç Satış Hedefi × %80'},
+ {key:'kasko',ad:'Kasko / Sigorta Penetrasyonu',tip:'sayi',ipucu:'Önerilen hedef: Araç Satış Adedi (gerçekleşen) × %80'},
  {key:'takas',ad:'Takas Alım Oranı (Min. %15)',tip:'sayi',ipucu:'Önerilen hedef: Araç Satış Hedefi × %15'},
  {key:'car_care',ad:'Car Care Hedefi',tip:'sayi'},
  {key:'dis_talep',ad:'Yönlendirilen Dış Talep (Lead/Fırsat)',tip:'sayi',ipucu2:'Müdür Değerlendirmesi'},
@@ -4365,6 +4372,14 @@ function karneMetrikKilitliMi(yil,ay,key){
    itibarıyla veri akışı normal şekilde Copilot üzerinden devam eder. */
 function karneCopilotKapaliMi(marka,yil,ay){
   return marka==='2.El' && (+yil)===2026 && (+ay)>=1 && (+ay)<=6;
+}
+/* 2026 Ağustos'tan itibaren (aksi söylenene kadar, bitiş tarihi YOK) TÜM
+   markalarda Hedef Tebliğ formundaki Araç Satış Adedi Copilot'tan çekilmez —
+   müdür danışmanın satış adedini kendisi elle girer. Sebep: yüklenen Excel'in
+   Fiili sayfası o ay hiç satışı olmayan danışmanı içermiyor, bu da hem hedefin
+   0/boş gelmesine hem de danışmanın listede hiç görünmemesine yol açıyordu. */
+function tebligTumManuelMi(yil,ay){
+  return (+yil)*100+(+ay) >= 2026*100+8;
 }
 var KARNE_DURUM_OPT=['Başarılı','Yetersiz','Etkisi Yok'];
 var karneDurumMap={taslak:'Taslak',kesinlesen:'Kesinleşen'};
@@ -4417,6 +4432,10 @@ function karneRoster(marka){
   /* Elle "eski çalışan" işaretlenmiş biri Excel/Copilot verisinde artık
      görünmese bile listeden kaybolmasın — kırmızı/işaretli olarak gösterilsin. */
   (WORK.eskiCalisanlar||[]).forEach(function(e){ if(e.marka===marka)set.add(e.danisman); });
+  /* Excel'in Fiili sayfası o ay hiç satışı olmayan danışmanı içermediği için
+     bazı aktif danışmanlar facts'te HİÇ görünmeyebilir — müdürün "Listede
+     Olmayan Danışman Ekle" ile elle eklediği isimler burada tamamlanır. */
+  (WORK.manuelDanismanlar||[]).forEach(function(e){ if(e.marka===marka)set.add(e.danisman); });
   return [...set].sort((a,b)=>a.localeCompare(b,'tr'));
 }
 /* Bir danışman, seçilen marka için, verilen yıl/ay VEYA sonrası için "eski
@@ -4439,6 +4458,18 @@ function eskiCalisanSil(marka,danisman){
   VERI.eskiCalisanlar=WORK.eskiCalisanlar; eskiCalisanSaveLocal();
   if(window.SatisFB)window.SatisFB.push({eskiCalisanlar:WORK.eskiCalisanlar}).catch(function(e){toast('⚠ Canlı panoya yazılamadı: '+e.message);});
 }
+function manuelDanismanSaveLocal(){try{localStorage.setItem('sp_manueldanismanlar',JSON.stringify(WORK.manuelDanismanlar||[]));}catch(_){}}
+function manuelDanismanEkle(marka,danisman){
+  WORK.manuelDanismanlar=(WORK.manuelDanismanlar||[]).filter(function(e){return !(e.marka===marka&&e.danisman===danisman);});
+  WORK.manuelDanismanlar.push({marka:marka,danisman:danisman});
+  VERI.manuelDanismanlar=WORK.manuelDanismanlar; manuelDanismanSaveLocal();
+  if(window.SatisFB)window.SatisFB.push({manuelDanismanlar:WORK.manuelDanismanlar}).catch(function(e){toast('⚠ Canlı panoya yazılamadı: '+e.message);});
+}
+function manuelDanismanSil(marka,danisman){
+  WORK.manuelDanismanlar=(WORK.manuelDanismanlar||[]).filter(function(e){return !(e.marka===marka&&e.danisman===danisman);});
+  VERI.manuelDanismanlar=WORK.manuelDanismanlar; manuelDanismanSaveLocal();
+  if(window.SatisFB)window.SatisFB.push({manuelDanismanlar:WORK.manuelDanismanlar}).catch(function(e){toast('⚠ Canlı panoya yazılamadı: '+e.message);});
+}
 /* Danışman <select>'inde eski çalışanları kırmızı ve "(Eski Çalışan)" etiketiyle
    göstermek için Karne + Tebliğ ekranlarının ortak kullandığı seçenek üretici. */
 function danOptHtml(roster,marka,yil,ay,secili){
@@ -4452,14 +4483,22 @@ function danOptHtml(roster,marka,yil,ay,secili){
    dropdown'un altına eklenen küçük kontrol — mevcut işaretliler + yeni ekle butonu. */
 function eskiCalisanYonetimHtml(marka,idPrefix){
   var flagli=(WORK.eskiCalisanlar||[]).filter(function(e){return e.marka===marka;});
-  var rows=flagli.map(function(e){
+  var eskiRows=flagli.map(function(e){
     return '<span class="k-badge" style="background:var(--bad);color:#fff;margin:3px 6px 0 0;display:inline-flex;align-items:center;gap:6px">'
       +esc(e.danisman)+' — '+AYLAR[e.ay-1]+' '+e.yil+'\'den itibaren eski çalışan'
       +'<button type="button" data-eskisil="'+esc(marka)+'|'+esc(e.danisman)+'" title="İşareti kaldır" style="background:none;border:none;color:#fff;cursor:pointer;font-weight:700;font-size:13px;line-height:1">×</button></span>';
   }).join('');
-  return '<div style="margin-top:8px">'
+  var manuel=(WORK.manuelDanismanlar||[]).filter(function(e){return e.marka===marka;});
+  var manuelRows=manuel.map(function(e){
+    return '<span class="k-badge" style="background:var(--ok);color:#fff;margin:3px 6px 0 0;display:inline-flex;align-items:center;gap:6px">'
+      +esc(e.danisman)+' — elle eklendi'
+      +'<button type="button" data-manuelsil="'+esc(marka)+'|'+esc(e.danisman)+'" title="Kaldır" style="background:none;border:none;color:#fff;cursor:pointer;font-weight:700;font-size:13px;line-height:1">×</button></span>';
+  }).join('');
+  return '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">'
     +'<button type="button" class="btn-sm" id="'+idPrefix+'EskiEkle" data-eskimarka="'+esc(marka)+'">🚫 İşten Ayrılan Danışmanı İşaretle</button>'
-    +(rows?'<div style="margin-top:6px">'+rows+'</div>':'')+'</div>';
+    +'<button type="button" class="btn-sm" id="'+idPrefix+'ManuelEkle" data-manuelmarka="'+esc(marka)+'">➕ Listede Olmayan Danışman Ekle</button>'
+    +'</div>'
+    +(eskiRows||manuelRows?'<div style="margin-top:6px">'+eskiRows+manuelRows+'</div>':'');
 }
 function karneFact(marka,danisman,yil,ay){
   return (WORK.facts||[]).find(f=>f.marka===marka&&f.danisman===danisman&&f.yil===yil&&f.ay===ay)||null;
@@ -4483,13 +4522,12 @@ function karneDefaultRows(marka,yil,ay,dan){
   var f=copilotKapali?null:karneFact(marka,dan,yil,ay);
   var acHedef=f?f.hedef:null, acGerc=f?f.fiili:null, acOrt=copilotKapali?null:karneSubeOrt(marka,yil,ay,dan);
   var takasHedef=(acHedef!=null)?Math.ceil(acHedef*0.15):null;
-  /* "2.El" markasında kasko/sigorta penetrasyon hedefi Araç Satış HEDEFİ'nin
-     değil, gerçekleşen Araç Satış Adedi'nin %70'i olarak gösterilir (diğer
-     markalarda hedefin %80'i olan eski kural aynen sürer). Bu sayede %70
+  /* Kasko/sigorta penetrasyon hedefi HER markada Araç Satış HEDEFİ'nin değil,
+     gerçekleşen Araç Satış Adedi'nin (satışın) belli bir yüzdesi olarak
+     gösterilir: "2.El"de %70, diğer tüm markalarda %80. Bu sayede o oranda
      penetrasyona ulaşan danışman oran>=1 olduğundan otomatik "Başarılı" çıkar. */
-  var kaskoHedef=(marka==='2.El')
-    ?((acGerc!=null)?Math.ceil(acGerc*0.70):null)
-    :((acHedef!=null)?Math.ceil(acHedef*0.80):null);
+  var kaskoOrani=marka==='2.El'?0.70:0.80;
+  var kaskoHedef=(acGerc!=null)?Math.ceil(acGerc*kaskoOrani):null;
   return KARNE_METRIKLER.map(function(m){
     if(karneMetrikKilitliMi(yil,ay,m.key))return {key:m.key,hedef:null,gerceklesen:null,subeOrt:null,durum:'Etkisi Yok'};
     if(m.key==='arac_satis')return {key:m.key,hedef:acHedef,gerceklesen:acGerc,subeOrt:acOrt,durum:karneDurumOner(karneOranHesap(acHedef,acGerc))};
@@ -4508,7 +4546,7 @@ function karneTableHtml(rows,kilitli,isNew,yil,ay,marka){
        müdürü Araç Satış Adedi'ni elle girebilsin diye kilit otomatik açılır. */
     var araSatisManuel=(m.key==='arac_satis'&&(copilotKapali||(marka==='2.El'&&(r.hedef==null||r.hedef===0))));
     var hints=[]; if(m.ipucu2)hints.push(m.ipucu2);
-    if(m.key==='kasko')hints.push(marka==='2.El'?'Önerilen hedef: Araç Satış Adedi (gerçekleşen) × %70':m.ipucu);
+    if(m.key==='kasko')hints.push('Önerilen hedef: Araç Satış Adedi (gerçekleşen) × %'+(marka==='2.El'?70:80));
     else if(m.ipucu)hints.push(m.ipucu);
     if(metrikKilitli)hints=['Bu dönem için kapalı — Haziran 2026\'dan itibaren açılacaktır'];
     if(araSatisManuel)hints=['Bu danışman için Copilot verisi yok/0 görünüyor — hedef ve gerçekleşeni elle giriniz'];
@@ -4859,10 +4897,15 @@ function karneCiktiAl(id){
    bildirildiğini kayıt altına alan ayrı bir hukuki belgedir. Aynı Firestore
    mantığıyla (satisTebligler) çalışır — bkz. karneKaydet/karneCiktiAl. */
 function tebligDefaultRows(marka,yil,ay,dan){
-  var f=karneCopilotKapaliMi(marka,yil,ay)?null:karneFact(marka,dan,yil,ay);
+  var manuelDonem=tebligTumManuelMi(yil,ay);
+  var f=(manuelDonem||karneCopilotKapaliMi(marka,yil,ay))?null:karneFact(marka,dan,yil,ay);
   var acHedef=f?f.hedef:null;
   var takasHedef=(acHedef!=null)?Math.ceil(acHedef*0.15):null;
-  var kaskoHedef=(acHedef!=null)?Math.ceil(acHedef*0.80):null;
+  /* Kasko hedefi burada da HER markada Araç Satış Adedi'nin (bu formda tek
+     rakam olduğu için "satış"ın kendisi) belli bir yüzdesi: "2.El"de %70,
+     diğerlerinde %80 — bkz. karneDefaultRows'daki aynı kural. */
+  var kaskoOrani=marka==='2.El'?0.70:0.80;
+  var kaskoHedef=(acHedef!=null)?Math.ceil(acHedef*kaskoOrani):null;
   return TEBLIG_METRIKLER.map(function(m){
     if(m.key==='arac_satis')return {key:m.key,hedef:acHedef};
     if(m.tip==='ozel')return {key:m.key,hedef:null};
@@ -4873,13 +4916,16 @@ function tebligDefaultRows(marka,yil,ay,dan){
 }
 function tebligTableHtml(rows,kilitli,yil,ay,marka){
   var copilotKapali=karneCopilotKapaliMi(marka,yil,ay);
+  var manuelDonem=tebligTumManuelMi(yil,ay);
   var trs=rows.map(function(r){
     var m=TEBLIG_METRIKLER.find(x=>x.key===r.key)||{ad:r.key,tip:'sayi'};
-    /* Karne tarafındaki aynı mantık: "2.El" markasında Copilot bu danışman/ay
-       için hedef getirmemişse (0/boş) ay ne olursa olsun kilit otomatik açılır. */
-    var araSatisManuel=(m.key==='arac_satis'&&(copilotKapali||(marka==='2.El'&&(r.hedef==null||r.hedef===0))));
-    var hints=[]; if(m.ipucu2)hints.push(m.ipucu2); if(m.ipucu)hints.push(m.ipucu);
-    if(araSatisManuel)hints=['Bu danışman için Copilot verisi yok/0 görünüyor — hedefi elle giriniz'];
+    /* Karne tarafındaki aynı mantık + 2026 Ağustos'tan itibaren TÜM markalarda
+       (bkz. tebligTumManuelMi) Araç Satış Adedi zaten manuel giriliyor. */
+    var araSatisManuel=(m.key==='arac_satis'&&(manuelDonem||copilotKapali||(marka==='2.El'&&(r.hedef==null||r.hedef===0))));
+    var hints=[]; if(m.ipucu2)hints.push(m.ipucu2);
+    if(m.key==='kasko')hints.push('Önerilen hedef: Araç Satış Adedi × %'+(marka==='2.El'?70:80));
+    else if(m.ipucu)hints.push(m.ipucu);
+    if(araSatisManuel)hints=[manuelDonem?'Bu dönemde tüm markalarda hedef elle giriliyor':'Bu danışman için Copilot verisi yok/0 görünüyor — hedefi elle giriniz'];
     var labelCell='<td class="metad">'+esc(m.ad)+(hints.length?'<small>'+esc(hints.join(' · '))+'</small>':'')+'</td>';
     if(m.tip==='ozel'){
       return '<tr>'+labelCell+'<td style="color:var(--muted);font-size:11.5px;text-align:left">'+esc(m.not||'Marka bazlı puan/skor — ayrı sistemden kontrol edilir.')+'</td></tr>';
@@ -5620,6 +5666,33 @@ function bindKarneDynamic(){
       var parts=b.dataset.eskisil.split('|');
       if(!confirm('"'+parts[1]+'" için eski çalışan işaretini kaldırmak istediğinize emin misiniz?'))return;
       eskiCalisanSil(parts[0],parts[1]);
+      render();
+    };
+  });
+  var kManuelEkle=document.getElementById('kManuelEkle');
+  if(kManuelEkle)kManuelEkle.onclick=function(){
+    var marka=kManuelEkle.dataset.manuelmarka;
+    var ad=prompt('Listede görünmeyen ama aktif olan danışmanın adını yazın:');
+    if(!ad||!ad.trim())return;
+    manuelDanismanEkle(marka,ad.trim());
+    toast('✓ "'+ad.trim()+'" listeye eklendi.');
+    render();
+  };
+  var tManuelEkle=document.getElementById('tManuelEkle');
+  if(tManuelEkle)tManuelEkle.onclick=function(){
+    var marka=tManuelEkle.dataset.manuelmarka;
+    var ad=prompt('Listede görünmeyen ama aktif olan danışmanın adını yazın:');
+    if(!ad||!ad.trim())return;
+    manuelDanismanEkle(marka,ad.trim());
+    toast('✓ "'+ad.trim()+'" listeye eklendi.');
+    render();
+  };
+  document.querySelectorAll('[data-manuelsil]').forEach(function(b){
+    b.onclick=function(e){
+      e.stopPropagation();
+      var parts=b.dataset.manuelsil.split('|');
+      if(!confirm('"'+parts[1]+'" adını listeden kaldırmak istediğinize emin misiniz?'))return;
+      manuelDanismanSil(parts[0],parts[1]);
       render();
     };
   });
