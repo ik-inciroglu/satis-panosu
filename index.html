@@ -4388,6 +4388,24 @@ var karneSel={yil:null,ay:null,dan:null};
 var karneMudurSub='giris';
 var karneAdminSub='liste';
 var TEBLIG_METRIKLER=KARNE_METRIKLER;
+/* Bu markalarda Kasko/Sigorta TEK satır olarak kalır (2.El zaten kendine özgü
+   %70 kuralına sahip; BMW/MINI/Motorrad/O&J için ayrım istenmedi). */
+var TEBLIG_KASKO_SIGORTA_TEK_MARKALAR=['Bmw','Mini','2.El','Bmw Motorrad','O & J'];
+/* Bu markalar dışındaki HER markada Hedef Tebliğ formunda "Kasko / Sigorta
+   Penetrasyonu" tek satırı, aynı formülle (Araç Satış Adedi × %80) hesaplanan
+   İKİ ayrı satıra bölünür: Kasko Penetrasyonu + Sigorta Penetrasyonu. Sadece
+   Hedef Tebliğ'de geçerli — Karne'deki kombine metrik değişmedi. */
+function tebligMetrikleri(marka){
+  if(TEBLIG_KASKO_SIGORTA_TEK_MARKALAR.indexOf(marka)>=0)return KARNE_METRIKLER;
+  var out=[];
+  KARNE_METRIKLER.forEach(function(m){
+    if(m.key==='kasko'){
+      out.push({key:'kasko',ad:'Kasko Penetrasyonu',tip:'sayi'});
+      out.push({key:'sigorta',ad:'Sigorta Penetrasyonu',tip:'sayi'});
+    }else out.push(m);
+  });
+  return out;
+}
 var TEBLIG_BAREM_METIN='BAŞARILI: Hedeflenen adet/oranın %100 ve üzerinde gerçekleşmesi. YETERSİZ: Hedeflenen adet/oranın altında gerçekleşmesi. ETKİSİ YOK: İlgili dönemde metriğin değerlendirme dışı bırakılması.';
 var tebligSel={yil:null,ay:null,dan:null};
 var tebligAdminFlt={durum:'',marka:'',ay:'',yil:''};
@@ -4906,10 +4924,10 @@ function tebligDefaultRows(marka,yil,ay,dan){
      diğerlerinde %80 — bkz. karneDefaultRows'daki aynı kural. */
   var kaskoOrani=marka==='2.El'?0.70:0.80;
   var kaskoHedef=(acHedef!=null)?Math.ceil(acHedef*kaskoOrani):null;
-  return TEBLIG_METRIKLER.map(function(m){
+  return tebligMetrikleri(marka).map(function(m){
     if(m.key==='arac_satis')return {key:m.key,hedef:acHedef};
     if(m.tip==='ozel')return {key:m.key,hedef:null};
-    if(m.key==='kasko')return {key:m.key,hedef:kaskoHedef};
+    if(m.key==='kasko'||m.key==='sigorta')return {key:m.key,hedef:kaskoHedef};
     if(m.key==='takas')return {key:m.key,hedef:takasHedef};
     return {key:m.key,hedef:null};
   });
@@ -4917,18 +4935,19 @@ function tebligDefaultRows(marka,yil,ay,dan){
 function tebligTableHtml(rows,kilitli,yil,ay,marka){
   var copilotKapali=karneCopilotKapaliMi(marka,yil,ay);
   var manuelDonem=tebligTumManuelMi(yil,ay);
+  var metrikler=tebligMetrikleri(marka);
   var trs=rows.map(function(r){
-    var m=TEBLIG_METRIKLER.find(x=>x.key===r.key)||{ad:r.key,tip:'sayi'};
+    var m=metrikler.find(x=>x.key===r.key)||{ad:r.key,tip:'sayi'};
     /* Karne tarafındaki aynı mantık + 2026 Ağustos'tan itibaren TÜM markalarda
        (bkz. tebligTumManuelMi) Araç Satış Adedi zaten manuel giriliyor. */
     var araSatisManuel=(m.key==='arac_satis'&&(manuelDonem||copilotKapali||(marka==='2.El'&&(r.hedef==null||r.hedef===0))));
     var hints=[]; if(m.ipucu2)hints.push(m.ipucu2);
-    if(m.key==='kasko')hints.push('Önerilen hedef: Araç Satış Adedi × %'+(marka==='2.El'?70:80));
+    if(m.key==='kasko'||m.key==='sigorta')hints.push('Önerilen hedef: Araç Satış Adedi × %'+(marka==='2.El'?70:80));
     else if(m.ipucu)hints.push(m.ipucu);
     if(araSatisManuel)hints=[manuelDonem?'Bu dönemde tüm markalarda hedef elle giriliyor':'Bu danışman için Copilot verisi yok/0 görünüyor — hedefi elle giriniz'];
     var adText=m.ad;
     if(marka!=='2.El'){
-      if(m.key==='kasko')adText+=" (Satış Adedinin %80'i)";
+      if(m.key==='kasko'||m.key==='sigorta')adText+=" (Satış Adedinin %80'i)";
       else if(m.key==='takas')adText+=" (Satış Adedinin %15'i)";
     }
     var labelCell='<td class="metad">'+esc(adText)+(hints.length?'<small>'+esc(hints.join(' · '))+'</small>':'')+'</td>';
@@ -4942,9 +4961,9 @@ function tebligTableHtml(rows,kilitli,yil,ay,marka){
     +'<thead><tr><th style="text-align:left">Performans Metriği</th><th>Aylık Hedef</th></tr></thead>'
     +'<tbody>'+trs+'</tbody></table></div>';
 }
-function tebligOkuFormdan(){
+function tebligOkuFormdan(marka){
   var rows=[];
-  TEBLIG_METRIKLER.forEach(function(m){
+  tebligMetrikleri(marka).forEach(function(m){
     if(m.tip==='ozel'){rows.push({key:m.key,hedef:null});return;}
     var inp=document.querySelector('[data-trow="'+m.key+'"]');
     rows.push({key:m.key,hedef:inp&&inp.value!==''?+inp.value:null});
@@ -4957,7 +4976,7 @@ function tebligKaydet(){
   var yilEl=document.getElementById('tYil'), ayEl=document.getElementById('tAy'), danEl=document.getElementById('tDan');
   if(!marka||!yilEl||!ayEl||!danEl||!danEl.value){if(msg)msg.innerHTML='<div class="err-msg">Dönem/Danışman bulunamadı.</div>';return;}
   var yil=+yilEl.value, ay=+ayEl.value, dan=danEl.value;
-  var rows=tebligOkuFormdan();
+  var rows=tebligOkuFormdan(marka);
   var existing=tebligBul(yil,ay,marka,dan), now=new Date().toISOString();
   if(existing&&existing.ciktiTarihi){if(msg)msg.innerHTML='<div class="err-msg">Bu tebliğ formunun çıktısı alındı, artık düzenlenemez.</div>';return;}
   if(!existing){
@@ -4987,11 +5006,12 @@ function tebligKaydet(){
   }
 }
 function tebligYazdirSatirlar(t){
+  var metrikler=tebligMetrikleri(t.marka);
   return (t.metrikler||[]).map(function(r){
-    var m=TEBLIG_METRIKLER.find(x=>x.key===r.key)||{ad:r.key,tip:'sayi'};
+    var m=metrikler.find(x=>x.key===r.key)||{ad:r.key,tip:'sayi'};
     var ad=m.ad;
     if(t.marka!=='2.El'){
-      if(m.key==='kasko')ad+=" (Satış Adedinin %80'i)";
+      if(m.key==='kasko'||m.key==='sigorta')ad+=" (Satış Adedinin %80'i)";
       else if(m.key==='takas')ad+=" (Satış Adedinin %15'i)";
     }
     if(m.tip==='ozel')return '<tr><td>'+esc(ad)+'</td><td style="color:#666;font-size:11px">'+esc(m.not||'')+'</td></tr>';
