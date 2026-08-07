@@ -3754,12 +3754,15 @@ function startApp(){
   WORK=JSON.parse(JSON.stringify(VERI));
   if(!WORK.karneler)WORK.karneler=[];
   if(!WORK.tebligler)WORK.tebligler=[];
+  if(!WORK.eskiCalisanlar)WORK.eskiCalisanlar=[];
   /* Karneler bu tarayıcıda daha önce kaydedildiyse (localStorage), o sürüm esas alınır —
      dosyayı her seferinde ortak veri.js'e yazmaya çalışmadan "kayıtlı kalması" için. */
   try{var lc=localStorage.getItem('sp_karneler');if(lc)WORK.karneler=JSON.parse(lc);}catch(_){}
   try{var lt=localStorage.getItem('sp_tebligler');if(lt)WORK.tebligler=JSON.parse(lt);}catch(_){}
+  try{var le=localStorage.getItem('sp_eskicalisanlar');if(le)WORK.eskiCalisanlar=JSON.parse(le);}catch(_){}
   if(!VERI.karneler)VERI.karneler=WORK.karneler;
   if(!VERI.tebligler)VERI.tebligler=WORK.tebligler;
+  if(!VERI.eskiCalisanlar)VERI.eskiCalisanlar=WORK.eskiCalisanlar;
   document.getElementById('login').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
   document.getElementById('whoName').textContent=SES.ad;
@@ -3804,6 +3807,10 @@ function applyLiveVeri(data){
   VERI.facts=data.facts; if(WORK)WORK.facts=data.facts;
   if(data.butce){VERI.butce=data.butce; if(WORK)WORK.butce=data.butce;}
   if(data.butceDetay){VERI.butceDetay=data.butceDetay; if(WORK)WORK.butceDetay=data.butceDetay;}
+  if(data.eskiCalisanlar){
+    VERI.eskiCalisanlar=data.eskiCalisanlar; if(WORK)WORK.eskiCalisanlar=data.eskiCalisanlar;
+    try{localStorage.setItem('sp_eskicalisanlar',JSON.stringify(data.eskiCalisanlar));}catch(_){}
+  }
   if(!VERI.meta)VERI.meta={};
   VERI.meta.guncelleme=data.guncelleme||VERI.meta.guncelleme;
   buildDims();
@@ -4407,7 +4414,52 @@ function karneRoster(marka){
   (WORK.facts||[]).forEach(function(f){
     if(f.marka===marka&&f.durum==='Aktif'&&(f.unvan==='Satış Danışmanı'||f.unvan==='Kıdemli Satış Danışmanı'))set.add(f.danisman);
   });
+  /* Elle "eski çalışan" işaretlenmiş biri Excel/Copilot verisinde artık
+     görünmese bile listeden kaybolmasın — kırmızı/işaretli olarak gösterilsin. */
+  (WORK.eskiCalisanlar||[]).forEach(function(e){ if(e.marka===marka)set.add(e.danisman); });
   return [...set].sort((a,b)=>a.localeCompare(b,'tr'));
+}
+/* Bir danışman, seçilen marka için, verilen yıl/ay VEYA sonrası için "eski
+   çalışan" olarak işaretlenmişse true döner (işaretlendiği aydan itibaren
+   kırmızı gösterilir; öncesindeki aylarda hâlâ normal/aktif görünür). */
+function eskiCalisanMi(marka,danisman,yil,ay){
+  return (WORK.eskiCalisanlar||[]).some(function(e){
+    return e.marka===marka&&e.danisman===danisman&&(yil*100+(+ay))>=(e.yil*100+(+e.ay));
+  });
+}
+function eskiCalisanSaveLocal(){try{localStorage.setItem('sp_eskicalisanlar',JSON.stringify(WORK.eskiCalisanlar||[]));}catch(_){}}
+function eskiCalisanEkle(marka,danisman,yil,ay){
+  WORK.eskiCalisanlar=(WORK.eskiCalisanlar||[]).filter(function(e){return !(e.marka===marka&&e.danisman===danisman);});
+  WORK.eskiCalisanlar.push({marka:marka,danisman:danisman,yil:yil,ay:ay});
+  VERI.eskiCalisanlar=WORK.eskiCalisanlar; eskiCalisanSaveLocal();
+  if(window.SatisFB)window.SatisFB.push({eskiCalisanlar:WORK.eskiCalisanlar}).catch(function(e){toast('⚠ Canlı panoya yazılamadı: '+e.message);});
+}
+function eskiCalisanSil(marka,danisman){
+  WORK.eskiCalisanlar=(WORK.eskiCalisanlar||[]).filter(function(e){return !(e.marka===marka&&e.danisman===danisman);});
+  VERI.eskiCalisanlar=WORK.eskiCalisanlar; eskiCalisanSaveLocal();
+  if(window.SatisFB)window.SatisFB.push({eskiCalisanlar:WORK.eskiCalisanlar}).catch(function(e){toast('⚠ Canlı panoya yazılamadı: '+e.message);});
+}
+/* Danışman <select>'inde eski çalışanları kırmızı ve "(Eski Çalışan)" etiketiyle
+   göstermek için Karne + Tebliğ ekranlarının ortak kullandığı seçenek üretici. */
+function danOptHtml(roster,marka,yil,ay,secili){
+  return roster.map(function(d){
+    var eski=eskiCalisanMi(marka,d,yil,ay);
+    return '<option value="'+esc(d)+'"'+(d===secili?' selected':'')+(eski?' style="color:var(--bad)"':'')+'>'
+      +esc(d)+(eski?' (Eski Çalışan)':'')+'</option>';
+  }).join('');
+}
+/* Marka müdürünün "işten ayrıldı" işaretlemesini kendi başına yönetebilmesi için
+   dropdown'un altına eklenen küçük kontrol — mevcut işaretliler + yeni ekle butonu. */
+function eskiCalisanYonetimHtml(marka,idPrefix){
+  var flagli=(WORK.eskiCalisanlar||[]).filter(function(e){return e.marka===marka;});
+  var rows=flagli.map(function(e){
+    return '<span class="k-badge" style="background:var(--bad);color:#fff;margin:3px 6px 0 0;display:inline-flex;align-items:center;gap:6px">'
+      +esc(e.danisman)+' — '+AYLAR[e.ay-1]+' '+e.yil+'\'den itibaren eski çalışan'
+      +'<button type="button" data-eskisil="'+esc(marka)+'|'+esc(e.danisman)+'" title="İşareti kaldır" style="background:none;border:none;color:#fff;cursor:pointer;font-weight:700;font-size:13px;line-height:1">×</button></span>';
+  }).join('');
+  return '<div style="margin-top:8px">'
+    +'<button type="button" class="btn-sm" id="'+idPrefix+'EskiEkle" data-eskimarka="'+esc(marka)+'">🚫 İşten Ayrılan Danışmanı İşaretle</button>'
+    +(rows?'<div style="margin-top:6px">'+rows+'</div>':'')+'</div>';
 }
 function karneFact(marka,danisman,yil,ay){
   return (WORK.facts||[]).find(f=>f.marka===marka&&f.danisman===danisman&&f.yil===yil&&f.ay===ay)||null;
@@ -4451,11 +4503,15 @@ function karneTableHtml(rows,kilitli,isNew,yil,ay,marka){
   var trs=rows.map(function(r){
     var m=KARNE_METRIKLER.find(x=>x.key===r.key)||{ad:r.key,tip:'sayi'};
     var metrikKilitli=karneMetrikKilitliMi(yil,ay,r.key);
+    /* "2.El" markasında Copilot bu danışman/ay için hedef getirmemiş olabilir
+       (hedef 0/boş gelir) — ay Temmuz sonrası bile olsa bu durumda marka
+       müdürü Araç Satış Adedi'ni elle girebilsin diye kilit otomatik açılır. */
+    var araSatisManuel=(m.key==='arac_satis'&&(copilotKapali||(marka==='2.El'&&(r.hedef==null||r.hedef===0))));
     var hints=[]; if(m.ipucu2)hints.push(m.ipucu2);
     if(m.key==='kasko')hints.push(marka==='2.El'?'Önerilen hedef: Araç Satış Adedi (gerçekleşen) × %70':m.ipucu);
     else if(m.ipucu)hints.push(m.ipucu);
     if(metrikKilitli)hints=['Bu dönem için kapalı — Haziran 2026\'dan itibaren açılacaktır'];
-    if(m.key==='arac_satis'&&copilotKapali)hints=['Bu dönemde Copilot verisi kullanılmıyor — hedef ve gerçekleşeni elle giriniz'];
+    if(araSatisManuel)hints=['Bu danışman için Copilot verisi yok/0 görünüyor — hedef ve gerçekleşeni elle giriniz'];
     var labelCell='<td class="metad">'+esc(m.ad)+(hints.length?'<small>'+esc(hints.join(' · '))+'</small>':'')+'</td>';
     var disAttr=(kilitli||metrikKilitli)?' disabled':'';
     var durumVal=metrikKilitli?'Etkisi Yok':r.durum;
@@ -4476,7 +4532,6 @@ function karneTableHtml(rows,kilitli,isNew,yil,ay,marka){
     var oran=karneOranHesap(r.hedef,r.gerceklesen);
     var oranTxt=oran==null?'—':(Math.round(oran*1000)/10)+'%';
     var oranStyle=oran==null?'':(oran>=1?'color:var(--ok)':'color:var(--bad)');
-    var araSatisManuel=(m.key==='arac_satis'&&copilotKapali);
     var ro=(kilitli||(m.key==='arac_satis'&&!araSatisManuel))?' readonly':'';
     return '<tr>'+labelCell
       +'<td><input type="number" step="any" data-drow="'+m.key+'" data-fld="hedef" value="'+(r.hedef==null?'':r.hedef)+'"'+ro+disAttr+'></td>'
@@ -4820,13 +4875,15 @@ function tebligTableHtml(rows,kilitli,yil,ay,marka){
   var copilotKapali=karneCopilotKapaliMi(marka,yil,ay);
   var trs=rows.map(function(r){
     var m=TEBLIG_METRIKLER.find(x=>x.key===r.key)||{ad:r.key,tip:'sayi'};
+    /* Karne tarafındaki aynı mantık: "2.El" markasında Copilot bu danışman/ay
+       için hedef getirmemişse (0/boş) ay ne olursa olsun kilit otomatik açılır. */
+    var araSatisManuel=(m.key==='arac_satis'&&(copilotKapali||(marka==='2.El'&&(r.hedef==null||r.hedef===0))));
     var hints=[]; if(m.ipucu2)hints.push(m.ipucu2); if(m.ipucu)hints.push(m.ipucu);
-    if(m.key==='arac_satis'&&copilotKapali)hints=['Bu dönemde Copilot verisi kullanılmıyor — hedefi elle giriniz'];
+    if(araSatisManuel)hints=['Bu danışman için Copilot verisi yok/0 görünüyor — hedefi elle giriniz'];
     var labelCell='<td class="metad">'+esc(m.ad)+(hints.length?'<small>'+esc(hints.join(' · '))+'</small>':'')+'</td>';
     if(m.tip==='ozel'){
       return '<tr>'+labelCell+'<td style="color:var(--muted);font-size:11.5px;text-align:left">'+esc(m.not||'Marka bazlı puan/skor — ayrı sistemden kontrol edilir.')+'</td></tr>';
     }
-    var araSatisManuel=(m.key==='arac_satis'&&copilotKapali);
     var ro=(kilitli||(m.key==='arac_satis'&&!araSatisManuel))?' readonly':'';
     return '<tr>'+labelCell+'<td><input type="number" step="any" data-trow="'+m.key+'" value="'+(r.hedef==null?'':r.hedef)+'"'+ro+(kilitli?' disabled':'')+'></td></tr>';
   }).join('');
@@ -4986,7 +5043,7 @@ function tebligMudurHtml(marka){
   var yilList=DIM.yillar.length?DIM.yillar:[tebligSel.yil];
   var yilOpts=yilList.map(y=>'<option value="'+y+'"'+(y===tebligSel.yil?' selected':'')+'>'+y+'</option>').join('');
   var ayOpts=AYLAR.map((a,i)=>'<option value="'+(i+1)+'"'+((i+1)===tebligSel.ay?' selected':'')+'>'+a+'</option>').join('');
-  var danOpts=roster.map(d=>'<option value="'+esc(d)+'"'+(d===tebligSel.dan?' selected':'')+'>'+esc(d)+'</option>').join('');
+  var danOpts=danOptHtml(roster,marka,tebligSel.yil,tebligSel.ay,tebligSel.dan);
 
   var head='<div class="card"><h3>Hedef Tebliğ Formu</h3>'
    +'<div class="csub">'+esc(marka)+' — danışman bazında aylık hedefleri tebliğ edin.</div>'
@@ -4996,7 +5053,7 @@ function tebligMudurHtml(marka){
    +'<div class="fld"><label>Ay</label><select id="tAy">'+ayOpts+'</select></div>'
    +'<div class="fld" style="grid-column:span 2"><label>Satış Danışmanı</label><select id="tDan">'
    +(roster.length?danOpts:'<option value="">Aktif danışman bulunamadı</option>')+'</select></div>'
-   +'</div></div>';
+   +'</div>'+eskiCalisanYonetimHtml(marka,'t')+'</div>';
   if(!roster.length)return head+tebligMudurGecmis(marka);
 
   var existing=tebligBul(tebligSel.yil,tebligSel.ay,marka,tebligSel.dan);
@@ -5172,7 +5229,7 @@ function viewKarneMudurGiris(marka){
   var yilList=DIM.yillar.length?DIM.yillar:[karneSel.yil];
   var yilOpts=yilList.map(y=>'<option value="'+y+'"'+(y===karneSel.yil?' selected':'')+'>'+y+'</option>').join('');
   var ayOpts=AYLAR.map((a,i)=>'<option value="'+(i+1)+'"'+((i+1)===karneSel.ay?' selected':'')+'>'+a+'</option>').join('');
-  var danOpts=roster.map(d=>'<option value="'+esc(d)+'"'+(d===karneSel.dan?' selected':'')+'>'+esc(d)+'</option>').join('');
+  var danOpts=danOptHtml(roster,marka,karneSel.yil,karneSel.ay,karneSel.dan);
 
   var head='<div class="card"><h3>Aylık Performans Değerlendirme Karnesi</h3>'
    +'<div class="csub">'+esc(marka)+' — yalnızca kendi ekibinizin verilerini girebilirsiniz.</div>'
@@ -5181,7 +5238,7 @@ function viewKarneMudurGiris(marka){
    +'<div class="fld"><label>Ay</label><select id="kAy">'+ayOpts+'</select></div>'
    +'<div class="fld" style="grid-column:span 2"><label>Satış Danışmanı</label><select id="kDan">'
    +(roster.length?danOpts:'<option value="">Aktif danışman bulunamadı</option>')+'</select></div>'
-   +'</div></div>';
+   +'</div>'+eskiCalisanYonetimHtml(marka,'k')+'</div>';
   if(!roster.length)return head;
 
   var existing=karneBul(karneSel.yil,karneSel.ay,marka,karneSel.dan);
@@ -5537,6 +5594,35 @@ function bindKarneDynamic(){
   if(kYil)kYil.onchange=function(){karneSel.yil=+kYil.value;render();};
   if(kAy)kAy.onchange=function(){karneSel.ay=+kAy.value;render();};
   if(kDan)kDan.onchange=function(){karneSel.dan=kDan.value;render();};
+  var kEskiEkle=document.getElementById('kEskiEkle');
+  if(kEskiEkle)kEskiEkle.onclick=function(){
+    var marka=kEskiEkle.dataset.eskimarka;
+    var mevcut=(document.getElementById('kDan')||{}).value||'';
+    var ad=prompt('İşten ayrılan danışmanın adını yazın:',mevcut);
+    if(!ad||!ad.trim())return;
+    eskiCalisanEkle(marka,ad.trim(),karneSel.yil,karneSel.ay);
+    toast('✓ "'+ad.trim()+'" '+AYLAR[karneSel.ay-1]+' '+karneSel.yil+'\'den itibaren eski çalışan olarak işaretlendi.');
+    render();
+  };
+  var tEskiEkle=document.getElementById('tEskiEkle');
+  if(tEskiEkle)tEskiEkle.onclick=function(){
+    var marka=tEskiEkle.dataset.eskimarka;
+    var mevcut=(document.getElementById('tDan')||{}).value||'';
+    var ad=prompt('İşten ayrılan danışmanın adını yazın:',mevcut);
+    if(!ad||!ad.trim())return;
+    eskiCalisanEkle(marka,ad.trim(),tebligSel.yil,tebligSel.ay);
+    toast('✓ "'+ad.trim()+'" '+AYLAR[tebligSel.ay-1]+' '+tebligSel.yil+'\'den itibaren eski çalışan olarak işaretlendi.');
+    render();
+  };
+  document.querySelectorAll('[data-eskisil]').forEach(function(b){
+    b.onclick=function(e){
+      e.stopPropagation();
+      var parts=b.dataset.eskisil.split('|');
+      if(!confirm('"'+parts[1]+'" için eski çalışan işaretini kaldırmak istediğinize emin misiniz?'))return;
+      eskiCalisanSil(parts[0],parts[1]);
+      render();
+    };
+  });
   document.querySelectorAll('.karne-table input[data-fld]').forEach(function(inp){
     inp.oninput=function(){
       var tr=inp.closest('tr');
