@@ -4352,6 +4352,13 @@ var KARNE_KILIT_METRIKLER=['dis_talep','lead_donusum','giden_arama','teklif'];
 function karneMetrikKilitliMi(yil,ay,key){
   return KARNE_KILIT_METRIKLER.indexOf(key)>=0 && (+yil)===2026 && (+ay)>=1 && (+ay)<=5;
 }
+/* "2.El" markası (Otokoç+Spoticar) için 2026 Ocak-Haziran döneminde Araç Satış
+   Adedi hedef/fiili verisi Copilot'tan çekilmez; marka müdürü bu alanları hem
+   Karne'de hem Hedef Tebliğ formunda kendisi elle girer. Temmuz 2026 (dahil)
+   itibarıyla veri akışı normal şekilde Copilot üzerinden devam eder. */
+function karneCopilotKapaliMi(marka,yil,ay){
+  return marka==='2.El' && (+yil)===2026 && (+ay)>=1 && (+ay)<=6;
+}
 var KARNE_DURUM_OPT=['Başarılı','Yetersiz','Etkisi Yok'];
 var karneDurumMap={taslak:'Taslak',kesinlesen:'Kesinleşen'};
 var karneDurumCls={taslak:'k-taslak',kesinlesen:'k-kesin'};
@@ -4420,10 +4427,17 @@ function karneOranHesap(hedef,gerceklesen){
 }
 function karneDurumOner(oran){return oran==null?'':(oran>=1?'Başarılı':'Yetersiz');}
 function karneDefaultRows(marka,yil,ay,dan){
-  var f=karneFact(marka,dan,yil,ay);
-  var acHedef=f?f.hedef:null, acGerc=f?f.fiili:null, acOrt=karneSubeOrt(marka,yil,ay,dan);
+  var copilotKapali=karneCopilotKapaliMi(marka,yil,ay);
+  var f=copilotKapali?null:karneFact(marka,dan,yil,ay);
+  var acHedef=f?f.hedef:null, acGerc=f?f.fiili:null, acOrt=copilotKapali?null:karneSubeOrt(marka,yil,ay,dan);
   var takasHedef=(acHedef!=null)?Math.ceil(acHedef*0.15):null;
-  var kaskoHedef=(acHedef!=null)?Math.ceil(acHedef*0.80):null;
+  /* "2.El" markasında kasko/sigorta penetrasyon hedefi Araç Satış HEDEFİ'nin
+     değil, gerçekleşen Araç Satış Adedi'nin %70'i olarak gösterilir (diğer
+     markalarda hedefin %80'i olan eski kural aynen sürer). Bu sayede %70
+     penetrasyona ulaşan danışman oran>=1 olduğundan otomatik "Başarılı" çıkar. */
+  var kaskoHedef=(marka==='2.El')
+    ?((acGerc!=null)?Math.ceil(acGerc*0.70):null)
+    :((acHedef!=null)?Math.ceil(acHedef*0.80):null);
   return KARNE_METRIKLER.map(function(m){
     if(karneMetrikKilitliMi(yil,ay,m.key))return {key:m.key,hedef:null,gerceklesen:null,subeOrt:null,durum:'Etkisi Yok'};
     if(m.key==='arac_satis')return {key:m.key,hedef:acHedef,gerceklesen:acGerc,subeOrt:acOrt,durum:karneDurumOner(karneOranHesap(acHedef,acGerc))};
@@ -4432,12 +4446,16 @@ function karneDefaultRows(marka,yil,ay,dan){
     return {key:m.key,hedef:(m.key==='takas'?takasHedef:null),gerceklesen:null,subeOrt:null,durum:''};
   });
 }
-function karneTableHtml(rows,kilitli,isNew,yil,ay){
+function karneTableHtml(rows,kilitli,isNew,yil,ay,marka){
+  var copilotKapali=karneCopilotKapaliMi(marka,yil,ay);
   var trs=rows.map(function(r){
     var m=KARNE_METRIKLER.find(x=>x.key===r.key)||{ad:r.key,tip:'sayi'};
     var metrikKilitli=karneMetrikKilitliMi(yil,ay,r.key);
-    var hints=[]; if(m.ipucu2)hints.push(m.ipucu2); if(m.ipucu)hints.push(m.ipucu);
+    var hints=[]; if(m.ipucu2)hints.push(m.ipucu2);
+    if(m.key==='kasko')hints.push(marka==='2.El'?'Önerilen hedef: Araç Satış Adedi (gerçekleşen) × %70':m.ipucu);
+    else if(m.ipucu)hints.push(m.ipucu);
     if(metrikKilitli)hints=['Bu dönem için kapalı — Haziran 2026\'dan itibaren açılacaktır'];
+    if(m.key==='arac_satis'&&copilotKapali)hints=['Bu dönemde Copilot verisi kullanılmıyor — hedef ve gerçekleşeni elle giriniz'];
     var labelCell='<td class="metad">'+esc(m.ad)+(hints.length?'<small>'+esc(hints.join(' · '))+'</small>':'')+'</td>';
     var disAttr=(kilitli||metrikKilitli)?' disabled':'';
     var durumVal=metrikKilitli?'Etkisi Yok':r.durum;
@@ -4458,7 +4476,8 @@ function karneTableHtml(rows,kilitli,isNew,yil,ay){
     var oran=karneOranHesap(r.hedef,r.gerceklesen);
     var oranTxt=oran==null?'—':(Math.round(oran*1000)/10)+'%';
     var oranStyle=oran==null?'':(oran>=1?'color:var(--ok)':'color:var(--bad)');
-    var ro=(kilitli||m.key==='arac_satis')?' readonly':'';
+    var araSatisManuel=(m.key==='arac_satis'&&copilotKapali);
+    var ro=(kilitli||(m.key==='arac_satis'&&!araSatisManuel))?' readonly':'';
     return '<tr>'+labelCell
       +'<td><input type="number" step="any" data-drow="'+m.key+'" data-fld="hedef" value="'+(r.hedef==null?'':r.hedef)+'"'+ro+disAttr+'></td>'
       +'<td><input type="number" step="any" data-drow="'+m.key+'" data-fld="gerceklesen" value="'+(r.gerceklesen==null?'':r.gerceklesen)+'"'+ro+disAttr+'></td>'
@@ -4785,7 +4804,7 @@ function karneCiktiAl(id){
    bildirildiğini kayıt altına alan ayrı bir hukuki belgedir. Aynı Firestore
    mantığıyla (satisTebligler) çalışır — bkz. karneKaydet/karneCiktiAl. */
 function tebligDefaultRows(marka,yil,ay,dan){
-  var f=karneFact(marka,dan,yil,ay);
+  var f=karneCopilotKapaliMi(marka,yil,ay)?null:karneFact(marka,dan,yil,ay);
   var acHedef=f?f.hedef:null;
   var takasHedef=(acHedef!=null)?Math.ceil(acHedef*0.15):null;
   var kaskoHedef=(acHedef!=null)?Math.ceil(acHedef*0.80):null;
@@ -4797,15 +4816,18 @@ function tebligDefaultRows(marka,yil,ay,dan){
     return {key:m.key,hedef:null};
   });
 }
-function tebligTableHtml(rows,kilitli){
+function tebligTableHtml(rows,kilitli,yil,ay,marka){
+  var copilotKapali=karneCopilotKapaliMi(marka,yil,ay);
   var trs=rows.map(function(r){
     var m=TEBLIG_METRIKLER.find(x=>x.key===r.key)||{ad:r.key,tip:'sayi'};
     var hints=[]; if(m.ipucu2)hints.push(m.ipucu2); if(m.ipucu)hints.push(m.ipucu);
+    if(m.key==='arac_satis'&&copilotKapali)hints=['Bu dönemde Copilot verisi kullanılmıyor — hedefi elle giriniz'];
     var labelCell='<td class="metad">'+esc(m.ad)+(hints.length?'<small>'+esc(hints.join(' · '))+'</small>':'')+'</td>';
     if(m.tip==='ozel'){
       return '<tr>'+labelCell+'<td style="color:var(--muted);font-size:11.5px;text-align:left">'+esc(m.not||'Marka bazlı puan/skor — ayrı sistemden kontrol edilir.')+'</td></tr>';
     }
-    var ro=(kilitli||m.key==='arac_satis')?' readonly':'';
+    var araSatisManuel=(m.key==='arac_satis'&&copilotKapali);
+    var ro=(kilitli||(m.key==='arac_satis'&&!araSatisManuel))?' readonly':'';
     return '<tr>'+labelCell+'<td><input type="number" step="any" data-trow="'+m.key+'" value="'+(r.hedef==null?'':r.hedef)+'"'+ro+(kilitli?' disabled':'')+'></td></tr>';
   }).join('');
   return '<div class="tablewrap" style="max-height:none"><table class="karne-table">'
@@ -4989,7 +5011,7 @@ function tebligMudurHtml(marka){
    +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:8px">'
    +'<h3 style="margin:0">Hedefler</h3>'+statusBadge+'</div>'
    +'<div class="csub">Çalışan: <b>'+esc(tebligSel.dan)+'</b> · Yönetici: <b>'+esc(SES.ad)+'</b> · Dönem: <b>'+AYLAR[tebligSel.ay-1]+' '+tebligSel.yil+'</b></div>'
-   +tebligTableHtml(rows,kilitli)
+   +tebligTableHtml(rows,kilitli,tebligSel.yil,tebligSel.ay,marka)
    +'<div style="border:1px dashed var(--line);border-radius:8px;padding:10px 12px;font-size:11.5px;color:var(--muted);background:var(--surface-2);margin-top:12px">'
    +'<b>Değerlendirme Baremi:</b> '+esc(TEBLIG_BAREM_METIN)+'</div>'
    +'<div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">';
@@ -5089,7 +5111,7 @@ function tebligAdminListe(){
       +'<button class="btn-sm" data-tebligsil="'+t.id+'" title="Kalıcı olarak sil" style="color:var(--bad);border-color:var(--bad)">🗑 Sil</button>'
       +'<span class="caret">▶</span></div></div>';
     var itemBody=isOpen?('<div class="karne-item-body">'
-      +tebligTableHtml(t.metrikler||[],true)
+      +tebligTableHtml(t.metrikler||[],true,t.yil,t.ay,t.marka)
       +(t.redMi?'<div class="note" style="border-color:var(--bad);color:var(--bad);background:rgba(200,60,60,.08);margin-top:12px"><b>İtiraz/Ret Açıklaması:</b> '+esc(t.redAciklama||'—')+'</div>':'')
       +'</div>'):'';
     return '<div class="karne-item'+(isOpen?' open':'')+'">'+itemHead+itemBody+'</div>';
@@ -5172,7 +5194,7 @@ function viewKarneMudurGiris(marka){
    +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
    +'<h3 style="margin:0">Değerlendirme</h3>'+statusBadge+'</div>'
    +'<div class="csub">Çalışan: <b>'+esc(karneSel.dan)+'</b> · Yönetici: <b>'+esc(SES.ad)+'</b> · Dönem: <b>'+AYLAR[karneSel.ay-1]+' '+karneSel.yil+'</b></div>'
-   +karneTableHtml(rows,kilitli,!existing,karneSel.yil,karneSel.ay)
+   +karneTableHtml(rows,kilitli,!existing,karneSel.yil,karneSel.ay,marka)
    +'<h4 style="margin:18px 0 6px;font-size:13px">B. Yönetici Değerlendirmesi ve Gelişim Aksiyon Planı</h4>'
    +'<div class="note"><i>(Satış Müdürü tarafından, yukarıda "Yetersiz" olarak işaretlenen metriklerin kök nedenleri, saha gözlemleri ve önümüzdeki dönem için çalışana sağlanan gelişim/eğitim aksiyonları somut olarak buraya yazılmalıdır. Boş bırakılamaz.)</i></div>'
    +'<textarea id="kPlan" rows="5"'+(kilitli?' disabled':'')+'>'+esc(existing?existing.gelisimPlani||'':'')+'</textarea>'
@@ -5297,7 +5319,7 @@ function karneAdminListe(){
       +'<button class="btn-sm" data-karnesil="'+k.id+'" title="Karneyi kalıcı olarak sil" style="color:var(--bad);border-color:var(--bad)">🗑 Sil</button>'
       +'<span class="caret">▶</span></div></div>';
     var itemBody=isOpen?('<div class="karne-item-body">'
-      +karneTableHtml(k.metrikler||[],true,false,k.yil,k.ay)
+      +karneTableHtml(k.metrikler||[],true,false,k.yil,k.ay,k.marka)
       +'<h4 style="margin:14px 0 6px;font-size:13px">B. Yönetici Değerlendirmesi ve Gelişim Aksiyon Planı</h4>'
       +'<div class="note" style="white-space:pre-wrap">'+esc(k.gelisimPlani||'—')+'</div>'
       +'</div>'):'';
