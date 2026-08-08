@@ -4551,6 +4551,15 @@ function karneOranHesap(hedef,gerceklesen){
   return (+gerceklesen)/(+hedef);
 }
 function karneDurumOner(oran){return oran==null?'':(oran>=1?'Başarılı':'Yetersiz');}
+/* İlgili dönem için zaten kaydedilmiş bir Hedef Tebliğ formu varsa, onun
+   hedef değerleri {key:hedef} şeklinde döner — yoksa boş obje. Bu, Karne'nin
+   varsayılan hedeflerini Copilot yerine ÇALIŞANA RESMİ OLARAK TEBLİĞ EDİLMİŞ
+   sayılarla doldurmak için kullanılır (bkz. karneDefaultRows). */
+function tebligHedefMap(yil,ay,marka,dan){
+  var t=tebligBul(yil,ay,marka,dan), map={};
+  if(t)(t.metrikler||[]).forEach(function(r){ if(r.hedef!=null)map[r.key]=r.hedef; });
+  return map;
+}
 function karneDefaultRows(marka,yil,ay,dan){
   var copilotKapali=karneCopilotKapaliMi(marka,yil,ay);
   var f=copilotKapali?null:karneFact(marka,dan,yil,ay);
@@ -4562,12 +4571,19 @@ function karneDefaultRows(marka,yil,ay,dan){
      penetrasyona ulaşan danışman oran>=1 olduğundan otomatik "Başarılı" çıkar. */
   var kaskoOrani=marka==='2.El'?0.70:0.80;
   var kaskoHedef=(acGerc!=null)?Math.ceil(acGerc*kaskoOrani):null;
+  /* Sadece Opel'de: Hedef Tebliğ formu bu dönem için zaten dolduysa, çalışana
+     resmi olarak bildirilen o hedefler Copilot/varsayılan hesaplamanın ÖNÜNE
+     geçer — tebliğ edilenden farklı bir hedefe göre değerlendirme yapılmasın
+     diye. Diğer markalarda Karne'nin hedef mantığı değişmedi. */
+  var tebligHedef=marka==='Opel'?tebligHedefMap(yil,ay,marka,dan):{};
+  if(tebligHedef.arac_satis!=null)acHedef=tebligHedef.arac_satis;
   return karneMetrikleri(marka).map(function(m){
     if(karneMetrikKilitliMi(yil,ay,m.key))return {key:m.key,hedef:null,gerceklesen:null,subeOrt:null,durum:'Etkisi Yok'};
     if(m.key==='arac_satis')return {key:m.key,hedef:acHedef,gerceklesen:acGerc,subeOrt:acOrt,durum:karneDurumOner(karneOranHesap(acHedef,acGerc))};
     if(m.tip==='ozel')return {key:m.key,hedef:null,gerceklesen:null,subeOrt:null,durum:''};
-    if(m.key==='kasko'||m.key==='sigorta')return {key:m.key,hedef:kaskoHedef,gerceklesen:null,subeOrt:null,durum:''};
-    return {key:m.key,hedef:(m.key==='takas'?takasHedef:null),gerceklesen:null,subeOrt:null,durum:''};
+    var varsayilanHedef=(m.key==='kasko'||m.key==='sigorta')?kaskoHedef:(m.key==='takas'?takasHedef:null);
+    var hedefVal=tebligHedef.hasOwnProperty(m.key)?tebligHedef[m.key]:varsayilanHedef;
+    return {key:m.key,hedef:hedefVal,gerceklesen:null,subeOrt:null,durum:''};
   });
 }
 function karneTableHtml(rows,kilitli,isNew,yil,ay,marka){
