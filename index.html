@@ -4369,8 +4369,12 @@ function karneMetrikKilitliMi(yil,ay,key){
 /* "2.El" markası (Otokoç+Spoticar) için 2026 Ocak-Haziran döneminde Araç Satış
    Adedi hedef/fiili verisi Copilot'tan çekilmez; marka müdürü bu alanları hem
    Karne'de hem Hedef Tebliğ formunda kendisi elle girer. Temmuz 2026 (dahil)
-   itibarıyla veri akışı normal şekilde Copilot üzerinden devam eder. */
+   itibarıyla veri akışı normal şekilde Copilot üzerinden devam eder.
+   "Opel" markasında ise bu TÜM aylar için (süresiz, bitiş tarihi YOK) geçerli
+   — hem Karne'de hem Hedef Tebliğ'de Araç Satış Adedi hedef/fiili her zaman
+   elle girilir. */
 function karneCopilotKapaliMi(marka,yil,ay){
+  if(marka==='Opel')return true;
   return marka==='2.El' && (+yil)===2026 && (+ay)>=1 && (+ay)<=6;
 }
 /* 2026 Ağustos'tan itibaren (aksi söylenene kadar, bitiş tarihi YOK) TÜM
@@ -4391,20 +4395,32 @@ var TEBLIG_METRIKLER=KARNE_METRIKLER;
 /* Bu markalarda Kasko/Sigorta TEK satır olarak kalır (2.El zaten kendine özgü
    %70 kuralına sahip; BMW/MINI/Motorrad/O&J için ayrım istenmedi). */
 var TEBLIG_KASKO_SIGORTA_TEK_MARKALAR=['Bmw','Mini','2.El','Bmw Motorrad','O & J'];
-/* Bu markalar dışındaki HER markada Hedef Tebliğ formunda "Kasko / Sigorta
-   Penetrasyonu" tek satırı, aynı formülle (Araç Satış Adedi × %80) hesaplanan
-   İKİ ayrı satıra bölünür: Kasko Penetrasyonu + Sigorta Penetrasyonu. Sadece
-   Hedef Tebliğ'de geçerli — Karne'deki kombine metrik değişmedi. */
-function tebligMetrikleri(marka){
-  if(TEBLIG_KASKO_SIGORTA_TEK_MARKALAR.indexOf(marka)>=0)return KARNE_METRIKLER;
+/* "Kasko / Sigorta Penetrasyonu" tek satırını, aynı formülle hesaplanan İKİ
+   ayrı satıra (Kasko Penetrasyonu + Sigorta Penetrasyonu) bölen ortak yardımcı
+   — hem tebligMetrikleri hem karneMetrikleri bunu kullanır. */
+function metrikKaskoSigortaAyir(list){
   var out=[];
-  KARNE_METRIKLER.forEach(function(m){
+  list.forEach(function(m){
     if(m.key==='kasko'){
       out.push({key:'kasko',ad:'Kasko Penetrasyonu',tip:'sayi'});
       out.push({key:'sigorta',ad:'Sigorta Penetrasyonu',tip:'sayi'});
     }else out.push(m);
   });
   return out;
+}
+/* Bu markalar dışındaki HER markada Hedef Tebliğ formunda kasko/sigorta ayrı
+   satır olur (bkz. metrikKaskoSigortaAyir). Sadece Hedef Tebliğ'de geçerli —
+   Karne'de bölünme sadece KARNE_SIGORTA_AYRI_MARKALAR'da listelenen markalarda
+   olur (bkz. karneMetrikleri). */
+function tebligMetrikleri(marka){
+  if(TEBLIG_KASKO_SIGORTA_TEK_MARKALAR.indexOf(marka)>=0)return KARNE_METRIKLER;
+  return metrikKaskoSigortaAyir(KARNE_METRIKLER);
+}
+/* Karne'de kasko/sigorta bölünmesi yalnızca açıkça istenen markalarda olur
+   (şu an: Opel) — diğer tüm markalarda Karne'deki kombine metrik değişmedi. */
+var KARNE_SIGORTA_AYRI_MARKALAR=['Opel'];
+function karneMetrikleri(marka){
+  return KARNE_SIGORTA_AYRI_MARKALAR.indexOf(marka)>=0?metrikKaskoSigortaAyir(KARNE_METRIKLER):KARNE_METRIKLER;
 }
 var TEBLIG_BAREM_METIN='BAŞARILI: Hedeflenen adet/oranın %100 ve üzerinde gerçekleşmesi. YETERSİZ: Hedeflenen adet/oranın altında gerçekleşmesi. ETKİSİ YOK: İlgili dönemde metriğin değerlendirme dışı bırakılması.';
 var tebligSel={yil:null,ay:null,dan:null};
@@ -4546,25 +4562,26 @@ function karneDefaultRows(marka,yil,ay,dan){
      penetrasyona ulaşan danışman oran>=1 olduğundan otomatik "Başarılı" çıkar. */
   var kaskoOrani=marka==='2.El'?0.70:0.80;
   var kaskoHedef=(acGerc!=null)?Math.ceil(acGerc*kaskoOrani):null;
-  return KARNE_METRIKLER.map(function(m){
+  return karneMetrikleri(marka).map(function(m){
     if(karneMetrikKilitliMi(yil,ay,m.key))return {key:m.key,hedef:null,gerceklesen:null,subeOrt:null,durum:'Etkisi Yok'};
     if(m.key==='arac_satis')return {key:m.key,hedef:acHedef,gerceklesen:acGerc,subeOrt:acOrt,durum:karneDurumOner(karneOranHesap(acHedef,acGerc))};
     if(m.tip==='ozel')return {key:m.key,hedef:null,gerceklesen:null,subeOrt:null,durum:''};
-    if(m.key==='kasko')return {key:m.key,hedef:kaskoHedef,gerceklesen:null,subeOrt:null,durum:''};
+    if(m.key==='kasko'||m.key==='sigorta')return {key:m.key,hedef:kaskoHedef,gerceklesen:null,subeOrt:null,durum:''};
     return {key:m.key,hedef:(m.key==='takas'?takasHedef:null),gerceklesen:null,subeOrt:null,durum:''};
   });
 }
 function karneTableHtml(rows,kilitli,isNew,yil,ay,marka){
   var copilotKapali=karneCopilotKapaliMi(marka,yil,ay);
+  var metrikler=karneMetrikleri(marka);
   var trs=rows.map(function(r){
-    var m=KARNE_METRIKLER.find(x=>x.key===r.key)||{ad:r.key,tip:'sayi'};
+    var m=metrikler.find(x=>x.key===r.key)||{ad:r.key,tip:'sayi'};
     var metrikKilitli=karneMetrikKilitliMi(yil,ay,r.key);
     /* "2.El" markasında Copilot bu danışman/ay için hedef getirmemiş olabilir
        (hedef 0/boş gelir) — ay Temmuz sonrası bile olsa bu durumda marka
        müdürü Araç Satış Adedi'ni elle girebilsin diye kilit otomatik açılır. */
     var araSatisManuel=(m.key==='arac_satis'&&(copilotKapali||(marka==='2.El'&&(r.hedef==null||r.hedef===0))));
     var hints=[]; if(m.ipucu2)hints.push(m.ipucu2);
-    if(m.key==='kasko')hints.push('Önerilen hedef: Araç Satış Adedi (gerçekleşen) × %'+(marka==='2.El'?70:80));
+    if(m.key==='kasko'||m.key==='sigorta')hints.push('Önerilen hedef: Araç Satış Adedi (gerçekleşen) × %'+(marka==='2.El'?70:80));
     else if(m.ipucu)hints.push(m.ipucu);
     if(metrikKilitli)hints=['Bu dönem için kapalı — Haziran 2026\'dan itibaren açılacaktır'];
     if(araSatisManuel)hints=['Bu danışman için Copilot verisi yok/0 görünüyor — hedef ve gerçekleşeni elle giriniz'];
@@ -4668,8 +4685,9 @@ function karneKaydet(kesinlestir){
   }
 }
 function karneYazdirSatirlar(k){
+  var metrikler=karneMetrikleri(k.marka);
   return (k.metrikler||[]).map(function(r){
-    var m=KARNE_METRIKLER.find(x=>x.key===r.key)||{ad:r.key,tip:'sayi'};
+    var m=metrikler.find(x=>x.key===r.key)||{ad:r.key,tip:'sayi'};
     if(m.tip==='ozel'){
       return '<tr><td>'+esc(m.ad)+'</td><td colspan="4" style="color:#666;font-size:11px">'+esc(m.not||'')+'</td><td>'+esc(r.durum||'')+'</td></tr>';
     }
@@ -4746,8 +4764,9 @@ function karneYazdirHtml(k){
     +'</body></html>';
 }
 function karneGeriBildirimSatirlar(k){
+  var metrikler=karneMetrikleri(k.marka);
   return (k.metrikler||[]).map(function(r){
-    var m=KARNE_METRIKLER.find(x=>x.key===r.key)||{ad:r.key,tip:'sayi'};
+    var m=metrikler.find(x=>x.key===r.key)||{ad:r.key,tip:'sayi'};
     var isaret=r.durum==='Yetersiz'?'☒':'☐';
     if(m.tip==='ozel'){
       return '<tr><td style="text-align:center">'+isaret+'</td><td>'+esc(m.ad)+'</td><td colspan="4" style="color:#666;font-size:11px">'+esc(m.not||'')+'</td><td>'+esc(r.durum||'')+'</td></tr>';
@@ -5473,7 +5492,7 @@ function karneDashboardHtml(opts){
     +'<select id="kdDan"><option value="">— Marka Ortalaması —</option>'
     +danListe.map(d=>'<option value="'+esc(d)+'"'+(karneDashFlt.danisman===d?' selected':'')+'>'+esc(d)+'</option>').join('')+'</select></div>';
   var metrikSelHtml='<div class="fld"><label>Performans Metriği</label><select id="kdMetrik">'
-    +KARNE_METRIKLER.map(m=>'<option value="'+m.key+'"'+(karneDashFlt.metrik===m.key?' selected':'')+'>'+esc(m.ad)+'</option>').join('')+'</select></div>';
+    +karneMetrikleri(effMarka).map(m=>'<option value="'+m.key+'"'+(karneDashFlt.metrik===m.key?' selected':'')+'>'+esc(m.ad)+'</option>').join('')+'</select></div>';
   var head='<div class="card"><h3>Performans Dashboard</h3><div class="csub">Yalnızca <b>kesinleşen</b> karnelere göre hesaplanır (taslaklar dahil değildir). Seçili metriğin marka veya danışman bazında zaman içindeki değişimini gösterir.</div>'
     +'<div class="karne-dash-filters">'+markaSelHtml+danSelHtml+metrikSelHtml+'</div></div>';
 
@@ -5485,7 +5504,7 @@ function karneDashboardHtml(opts){
   });
   if(!filtered.length)return head+'<div class="empty">Bu filtrelerle kesinleşmiş karne bulunamadı.</div>';
 
-  var metrikDef=KARNE_METRIKLER.find(m=>m.key===karneDashFlt.metrik)||KARNE_METRIKLER[0];
+  var metrikDef=karneMetrikleri(effMarka).find(m=>m.key===karneDashFlt.metrik)||KARNE_METRIKLER[0];
   var donemSet={};
   filtered.forEach(function(k){donemSet[k.yil+'-'+(k.ay<10?'0'+k.ay:k.ay)]=true;});
   var donemler=Object.keys(donemSet).sort();
@@ -5582,7 +5601,7 @@ function karneExportRows(){
   var rows=[];
   list.forEach(function(k){
     (k.metrikler||[]).forEach(function(r){
-      var m=KARNE_METRIKLER.find(x=>x.key===r.key)||{ad:r.key};
+      var m=karneMetrikleri(k.marka).find(x=>x.key===r.key)||{ad:r.key};
       var oran=karneOranHesap(r.hedef,r.gerceklesen);
       rows.push({
         marka:k.marka, yil:k.yil, ay:AYLAR[k.ay-1], danisman:k.danisman, yonetici:k.yoneticiAd||'',
